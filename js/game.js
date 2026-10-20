@@ -4,16 +4,18 @@ const NEED_SUM = 11, MAX_LV = 5;
 const STAT_META = { str: ['💪', 'Сила', '#ff7a5c'], agi: ['🤸', 'Ловкость', '#5cd6ff'], int: ['🧠', 'Интеллект', '#c59bff'], cha: ['🎭', 'Харизма', '#ffd84a'] };
 const G = {
   state: 'menu', W: null, t: 0, players: [], me: null, npcs: [], keeper: null, vis: [], pickups: [], proj: [], parts: [], floaters: [], splats: [],
-  mouse: { x: 240, y: 135, in: false }, aim: { x: 0, y: 0, z: 0 }, keys: new Set(), tool: 0, camSnap: true,
+  mouse: { x: 240, y: 135, in: false }, aim: { x: 0, y: 0, z: 0 }, keys: new Set(), tool: 0, camSnap: true, keyHolder: null, pid: 0, duel: null, invite: null,
 };
+Object.defineProperty(G, 'hasKey', { get() { return G.keyHolder !== null && G.keyHolder === NET.id; } });
+const inDuel = () => !!G.duel && (G.duel.a === NET.id || G.duel.b === NET.id);
 function resetState() {
   Object.assign(G, {
-    t: 0, score: 0, energy: 80, hasKey: false, gateOpen: false, gateAnim: 0, combo: 0, comboT: 0, mini: null, tut: null, tutOk: false, tutDist: 0, dustT: 0, peanutT: 5,
+    t: 0, score: 0, energy: 80, keyHolder: null, pid: 0, duel: null, invite: null, gateOpen: false, gateAnim: 0, combo: 0, comboT: 0, mini: null, tut: null, tutOk: false, tutDist: 0, dustT: 0, peanutT: 5,
     vineCool: 0, shotCool: 0, stickDur: 3, startedAt: performance.now(), keyHint: 0,
     st: { str: { lv: 1, xp: 0 }, agi: { lv: 1, xp: 0 }, int: { lv: 1, xp: 0 }, cha: { lv: 1, xp: 0 } },
     inv: { banana: 0, nut: 0, stone: 2, stick: 0, poop: 3, coin: 0, water: 0 },
     cnt: { banana: 0, peanut: 0, nuts: 0, fish: 0, dig: 0, treasure: 0, puzzle: 0, show: 0, drums: 0, hits: 0, viral: 0, bestCombo: 0, bestShow: 0, stolen: 0, friends: 0, decoy: 0, slips: 0, gongs: 0,
-      squirts: 0, parrots: 0, summit: 0, vines: 0, jumps: 0, bounces: 0, ladders: 0, sprintT: 0, pacify: 0, locker: 0, throws: 0, shakes: 0 },
+      squirts: 0, parrots: 0, summit: 0, vines: 0, jumps: 0, bounces: 0, ladders: 0, sprintT: 0, pacify: 0, locker: 0, throws: 0, shakes: 0, duels: 0 },
     pickups: [], proj: [], parts: [], floaters: [], splats: [],
   });
   QUESTS.forEach(q => q.done = false); ACHS.forEach(a => a.on = false);
@@ -70,7 +72,7 @@ function startAct(type, dur, done) { const me = G.me; me.act = { type, t: 0, dur
 function exertBlock(cost) { return G.energy >= cost ? null : 'Нет сил — съешь банан (R)!'; }
 function tileKind(x, y) { const tx = Math.floor(x), ty = Math.floor(y); return tx < 0 || ty < 0 || tx >= N || ty >= N ? K.GRASS : G.W.kind[ty * N + tx]; }
 function useStickDur() { G.stickDur--; if (G.stickDur <= 0) { G.inv.stick--; G.stickDur = 3; toast('Палка сломалась!', 'bad'); } }
-function lootDrop(type, x, y) { G.pickups.push({ type, x, y, z: groundAt(G.W, x, y), fly: { sx: x, sy: y, t: 0, fl: .4 }, age: 0 }); }
+function lootDrop(type, x, y) { addPickup({ type, x, y, z: groundAt(G.W, x, y), fly: { sx: x, sy: y, t: 0, fl: .4 }, age: 0 }); }
 function eatBanana() {
   const me = G.me; if (me.act || G.mini || me.stun > 0) return;
   if (G.inv.banana <= 0) { toast('Нет бананов — сорви с пальмы (E)', 'bad'); return; }
@@ -122,8 +124,8 @@ function describe(t) {
       if (G.inv.stick <= 0) return { text: 'Шкафчик смотрителя: нужна палка-отмычка', bad: true };
       return { text: 'Взломать шкафчик (смотритель не должен видеть!)', run: () => startAct('dig', 3, () => {
         const k = G.keeper; useStickDur(); me.heat = Math.max(me.heat, 2);
-        if (k.hasKey && dist(k, me) > 7 && !keeperSees(k, me) || k.state === 'stunned') { o.opened = true; G.hasKey = true; k.hasKey = false; G.cnt.stolen++; G.cnt.locker++; addScore(40); toast('Из шкафчика достал ключ от ворот!', 'good'); sfx.up(); floater(me.x, me.y, me.z + 3, 'КЛЮЧ!', P_.yel); }
-        else { toast('Смотритель услышал возню у сторожки!', 'bad'); sfx.bad(); alertKeeper(k, me.x, me.y, 'шкафчик'); k.cool = Math.max(k.cool, 2); }
+        if (k.hasKey && dist(k, me) > 7 && !keeperSees(k, me) || k.state === 'stunned') { o.opened = true; claimKey(); G.cnt.stolen++; G.cnt.locker++; addScore(40); toast('Из шкафчика достал ключ от ворот!', 'good'); sfx.up(); floater(me.x, me.y, me.z + 3, 'КЛЮЧ!', P_.yel); }
+        else { toast('Смотритель услышал возню у сторожки!', 'bad'); sfx.bad(); netNoise(me.x, me.y, 9, 'шкафчик'); }
       }) }; }
     case 'box':
       if (o.cool > 0) return { text: 'Ящик перезаряжается… ' + Math.ceil(o.cool) + 'с', bad: true };
@@ -149,25 +151,28 @@ function describe(t) {
         addEnergy(-10); G.cnt.show++; addXp('cha'); addScore(g); G.cnt.bestShow = Math.max(G.cnt.bestShow, g); G.stageCool = 6;
         floater(me.x, me.y, me.z + 3, '+' + g + (fr ? ` (друзья ×${1 + .25 * fr})` : ''), P_.yel); sfx.up();
         emit(me.x, me.y, me.z + 3, 40, { kind: 'star', col: [P_.red, P_.yel, P_.blue, P_.pur, P_.lime], spread: 2.4, v0: 2, v1: 7, g: 7, life: 1.8 });
-        for (const v of G.vis) if (v.on && v.side === 'n') { v.cheer = 3; if (Math.random() < .3) visitorToss(Math.random() < .5 ? 'coin' : 'peanut', v); }
+        netCheer('n', 3, .3);
       }) }; }
     case 'gate':
       if (G.gateOpen) return null;
       if (!G.hasKey) return { text: 'Ворота заперты — нужен ключ (у смотрителя или в его шкафчике)', bad: true };
       if (lvSum() < NEED_SUM) return { text: `Ты ещё слабоват: уровни ${lvSum()}/${NEED_SUM}`, bad: true };
-      return { text: 'Открыть ворота и бежать!', run: () => { G.gateOpen = true; sfx.up(); toast('Ворота открыты — БЕГИ!', 'good'); } };
+      return { text: 'Открыть ворота и бежать!', run: () => { G.gateOpen = true; if (!isHost()) NET.send({ t: 'gate' }); sfx.up(); toast('Ворота открыты — БЕГИ!', 'good'); } };
     case 'chimp':
-      if (o.friend) { if (o.boostCool > 0) return { text: 'Друг устал', bad: true }; return { text: `${o.name}: подсадка (прыжок выше)`, run: () => { o.boostCool = 2.5; me.vz = 11.2; me.grounded = false; sfx.jump(); floater(o.x, o.y, o.z + 3, 'ХОП!', P_.pink); } }; }
-      if (G.inv.banana > 0) return { text: `Угостить ${o.name} бананом (дружба ${Math.round(o.bond)}%)`, run: () => startAct('eat', .5, () => { G.inv.banana--; o.bond = Math.min(100, o.bond + 30); o.mood = 'happy'; o.moodT = 2; floater(o.x, o.y, o.z + 3, '+дружба', P_.pink); sfx.ok(); checkBond(o); }) };
+      if (o.friend) { if (o.boostCool > 0) return { text: 'Друг устал', bad: true }; return { text: `${o.name}: подсадка (прыжок выше)`, run: () => { o.boostCool = 2.5; if (!isHost()) NET.send({ t: 'npc', op: 'boost', i: G.npcs.indexOf(o) }); me.vz = 11.2; me.grounded = false; sfx.jump(); floater(o.x, o.y, o.z + 3, 'ХОП!', P_.pink); } }; }
+      if (G.inv.banana > 0) return { text: `Угостить ${o.name} бананом (дружба ${Math.round(o.bond)}%)`, run: () => startAct('eat', .5, () => { G.inv.banana--; if (isHost()) { o.bond = Math.min(100, o.bond + 30); o.mood = 'happy'; o.moodT = 2; checkBond(o, me); } else NET.send({ t: 'npc', op: 'give', i: G.npcs.indexOf(o) }); floater(o.x, o.y, o.z + 3, '+дружба', P_.pink); sfx.ok(); }) };
       return { text: `${o.name} хочет бананов (дружба ${Math.round(o.bond)}%)`, bad: true };
     case 'gorilla':
       if (G.st.str.lv < 4) return { text: 'Горилла огромна… (вызов — Сила 4+)', bad: true };
       if (o.pacified > 0) return { text: 'Горилла уважает тебя', bad: true };
       return { text: 'Бросить вызов горилле (рискованно!)', run: () => startAct('climb', 1.6, () => {
         const ch = clamp(.12 + .25 * (G.st.str.lv - 3), .1, .8);
-        if (Math.random() < ch) { o.pacified = 90; o.rage = 0; G.cnt.pacify++; addScore(60); addXp('str'); toast('Горилла признала твою силу!', 'good'); sfx.up(); floater(me.x, me.y, me.z + 3, 'ПОБЕДА! +60', P_.yel); }
-        else { me.stun = .9; addScore(-10); toast('Горилла отшвырнула тебя!', 'bad'); sfx.bad(); o.rage = 3; }
+        if (Math.random() < ch) { if (isHost()) { o.pacified = 90; o.rage = 0; } else NET.send({ t: 'npc', op: 'duelWin', i: G.npcs.indexOf(o) }); G.cnt.pacify++; addScore(60); addXp('str'); toast('Горилла признала твою силу!', 'good'); sfx.up(); floater(me.x, me.y, me.z + 3, 'ПОБЕДА! +60', P_.yel); }
+        else { me.stun = .9; addScore(-10); toast('Горилла отшвырнула тебя!', 'bad'); sfx.bad(); if (isHost()) o.rage = 3; else NET.send({ t: 'npc', op: 'duelLose', i: G.npcs.indexOf(o) }); }
       }) };
+    case 'player':
+      if (G.duel) return { text: 'Дуэль уже идёт', bad: true };
+      return { text: `⚔ Вызвать ${o.name} на дуэль говном`, run: () => { duelRequest(o.netId); sfx.hoot(); } };
     case 'keeper': {
       const k = G.keeper;
       if (!k.hasKey) return { text: 'Ключа у смотрителя уже нет', bad: true };
@@ -177,8 +182,8 @@ function describe(t) {
       const ch = stunned ? 1 : clamp((behind ? .45 : .12) + .12 * (G.st.agi.lv - 1), .05, .95);
       return { text: `Стащить ключ — шанс ${Math.round(ch * 100)}%${stunned ? ' (он оглушён!)' : behind ? ' (сзади — бонус)' : ' (зайди сзади, пригнись!)'}`, run: () => startAct('dig', .8, () => {
         addEnergy(-8); addXp('agi');
-        if (Math.random() < ch) { G.hasKey = true; k.hasKey = false; G.cnt.stolen++; addScore(40); toast('Ты стащил ключ! Теперь — к воротам', 'good'); sfx.up(); floater(me.x, me.y, me.z + 3, 'КЛЮЧ!', P_.yel); k.speedP = 2.6; }
-        else { addScore(-10); me.stun = 1.4; k.cool = 6; k.state = 'chase'; k.lost = 0; toast('Смотритель заметил — БЕГИ!', 'bad'); sfx.bad(); }
+        if (Math.random() < ch) { claimKey(); G.cnt.stolen++; addScore(40); toast('Ты стащил ключ! Теперь — к воротам', 'good'); sfx.up(); floater(me.x, me.y, me.z + 3, 'КЛЮЧ!', P_.yel); }
+        else { addScore(-10); me.stun = 1.4; if (isHost()) { k.cool = 6; k.state = 'chase'; k.lost = 0; k.chasing = me.netId; } else NET.send({ t: 'keeperFail' }); toast('Смотритель заметил — БЕГИ!', 'bad'); sfx.bad(); }
       }) }; }
   }
   return null;
@@ -192,6 +197,7 @@ function nearestInteractable() {
     if (d < reach && Math.abs(groundAt(W, o.x, o.y) - me.z) <= 1.7) { if (o.type === 'dig' && o.dug) continue; if (o.type === 'chest' && o.opened) continue; consider(d - (o.type === 'banana_tree' ? .4 : 0), { kind: o.type, o }); }
   }
   for (const n of G.npcs) { const d = dist(n, me); if (d < 1.8 && (n.sp === 'chimp' || n.sp === 'gorilla') && Math.abs(n.z - me.z) < 1.7) consider(d + .1, { kind: n.sp, o: n }); }
+  for (const p of livePlayers()) if (!p.me && !p.tween) { const d = dist(p, me); if (d < 2.2 && Math.abs(p.z - me.z) < 1.7) consider(d + .15, { kind: 'player', o: p }); }
   const k = G.keeper; if (k) { const d = dist(k, me); if (d < 1.7 && Math.abs(k.z - me.z) < 1.7) consider(d - .2, { kind: 'keeper', o: k }); }
   for (let j = -1; j <= 1; j++) for (let i = -1; i <= 1; i++) if (tileKind(me.x + i * .8, me.y + j * .8) === K.WATER) consider(.9, { kind: 'pond', o: {} });
   const st = W.stage; if (me.x >= st.x && me.x < st.x + st.w && me.y >= st.y && me.y < st.y + st.d && me.z >= .5) consider(.3, { kind: 'stage', o: {} });
@@ -207,7 +213,7 @@ function interact() {
 
 // ───────── Инструменты (мышь) ─────────
 const TOOLS = [
-  { id: 'poop', name: 'Бросок', icon: '💩', throwable: true, ok: () => G.inv.poop > 0, fail: 'Нет зарядов — поешь бананов (R)', use: t => throwItem('poop', t), count: () => G.inv.poop },
+  { id: 'poop', name: 'Бросок', icon: '💩', throwable: true, ok: () => G.inv.poop > 0 || inDuel(), fail: 'Нет зарядов — поешь бананов (R)', use: t => throwItem('poop', t), count: () => G.inv.poop },
   { id: 'banana', name: 'Банан', icon: '🍌', throwable: true, ok: () => G.inv.banana > 0, fail: 'Нет бананов — сорви с пальмы (E)', use: t => throwItem('banana', t), count: () => G.inv.banana },
   { id: 'stone', name: 'Камень', icon: '🪨', throwable: true, ok: () => G.inv.stone > 0, fail: 'Нет камней — возьми из кучи (E)', use: t => throwItem('stone', t), count: () => G.inv.stone },
   { id: 'stick', name: 'Палка', icon: '🥢', ok: () => G.inv.stick > 0, fail: 'Нет палки — кусты и деревья (E)', use: t => useStick(t), count: () => G.inv.stick },
@@ -220,9 +226,9 @@ function useTool() {
   t.use(G.aim);
 }
 function throwItem(kind, tgt) {
-  const me = G.me; G.inv[kind]--; G.cnt.throws += kind === 'poop' ? 1 : 0; G.shotCool = .35;
+  const me = G.me; if (!(kind === 'poop' && inDuel())) G.inv[kind]--; G.cnt.throws += kind === 'poop' ? 1 : 0; G.shotCool = .35;
   setFacing(me, tgt.x - me.x, tgt.y - me.y); if (kind === 'poop' || kind === 'stone') me.heat = Math.max(me.heat, 3);
-  startAct('throw', .22, () => { const sol = solveThrow(me, G.aim.x !== undefined ? { x: tgt.x, y: tgt.y, z: tgt.z } : tgt); spawnProj(kind, me, sol); sfx.throw(); });
+  startAct('throw', .22, () => { const sol = solveThrow(me, G.aim.x !== undefined ? { x: tgt.x, y: tgt.y, z: tgt.z } : tgt); spawnProj(kind, me, sol); netProj(kind, me, sol); sfx.throw(); });
 }
 function squirt(tgt) {
   const me = G.me; G.inv.water--; G.shotCool = .25; setFacing(me, tgt.x - me.x, tgt.y - me.y);
@@ -256,9 +262,7 @@ function hoot() {
   startAct('hoot', .55, () => {
     sfx.hoot(); floater(me.x, me.y, me.z + 3, 'У-У-А-А!', P_.white);
     emit(me.x, me.y, me.z + 3, 12, { kind: 'star', col: P_.white, spread: 2, v0: 0, v1: 2, g: 0, life: .6 });
-    noiseAt(me.x, me.y, 14, 'крик');
-    for (const v of G.vis) if (v.on && dist(v, me) < 16) { v.cheer = 3; if (Math.random() < .15) visitorToss('peanut', v); }
-    for (const n of G.npcs) { if (n.sp === 'gorilla' && dist(n, me) < 9 && n.full <= 0 && n.pacified <= 0) { n.rage = 5; } if (n.sp === 'chimp' && n.friend) n.moving = false; if (n.sp === 'parrot' && dist(n, me) < 10) n.fleeT = 3; }
+    netHoot(me.x, me.y);
     if (G.vis.some(v => v.on && v.cheer > 0)) addScore(3);
   });
 }
@@ -285,7 +289,7 @@ function updateMini(dt) {
   m.t += dt;
   if (m.type === 'puzzle') { if (m.phase === 'show' && m.t >= m.showT) { m.phase = 'input'; m.t = 0; renderMini(); } else if (m.phase === 'input' && m.t > m.limit) { m.o.cool = 3; endMini(); sfx.bad(); floater(G.me.x, G.me.y, G.me.z + 3, 'время вышло', P_.red); } }
   else if (m.type === 'crack') { m.pos += m.dir * dt * (1.1 + .1 * (1 - G.st.int.lv * .1)); if (m.pos >= 1) { m.pos = 1; m.dir = -1; } if (m.pos <= 0) { m.pos = 0; m.dir = 1; } renderMini(); }
-  else if (m.type === 'drums') { if (m.t >= m.dur) { const o = m.o, pts = Math.min(80, m.taps * 2); o.cool = 12; G.cnt.drums++; addXp('cha'); addScore(pts); floater(G.me.x, G.me.y, G.me.z + 3, '+' + pts + ' ритм!', P_.yel); sfx.up(); endMini(); if (m.taps >= 12) { for (const v of G.vis) if (v.on) { v.cheer = 4; if (Math.random() < .35) visitorToss(Math.random() < .5 ? 'coin' : 'peanut', v); } } } else renderMini(); }
+  else if (m.type === 'drums') { if (m.t >= m.dur) { const o = m.o, pts = Math.min(80, m.taps * 2); o.cool = 12; G.cnt.drums++; addXp('cha'); addScore(pts); floater(G.me.x, G.me.y, G.me.z + 3, '+' + pts + ' ритм!', P_.yel); sfx.up(); endMini(); if (m.taps >= 12) netCheer(null, 4, .35); } else renderMini(); }
 }
 function miniKey(dir) {
   const m = G.mini; if (!m) return;
@@ -317,6 +321,7 @@ addEventListener('keydown', e => {
   else if (e.code === 'KeyR') eatBanana();
   else if (e.code === 'KeyF') useTool();
   else if (e.code === 'KeyQ') hoot();
+  else if (e.code === 'KeyY') duelAccept();
   else if (/^Digit[1-6]$/.test(e.code)) { G.tool = +e.code.slice(5) - 1; sfx.tick(); }
 });
 addEventListener('keyup', e => G.keys.delete(e.code));
@@ -339,6 +344,7 @@ function computeAim() {
   for (const v of G.vis) if (v.on && v.a > .5) test(v, 26, 7, 0);
   for (const n of G.npcs) test(n, n.sp === 'gorilla' ? 38 : n.sp === 'tortoise' ? 12 : n.sp === 'parrot' ? 12 : 28, n.sp === 'gorilla' ? 12 : 8, n.sp === 'parrot' ? n.rz : n.rz);
   if (G.keeper) test(G.keeper, 34, 8, G.keeper.rz);
+  if (G.duel) for (const p of livePlayers()) if (!p.me) test(p, 28, 8, p.rz);
   if (best) return { x: best.x, y: best.y, z: (best.sp === 'parrot' ? best.z : best.z || 0) + 1, ent: best };
   return ground;
 }
@@ -346,22 +352,22 @@ function computeAim() {
 // ───────── Обновление ─────────
 function update(dt) {
   if (G.state !== 'play') return;
-  const me = G.me, W = G.W;
+  const me = G.me, W = G.W, host = isHost();
   G.t += dt;
   if (G.shotCool > 0) G.shotCool -= dt; if (G.vineCool > 0) G.vineCool -= dt; if (G.stageCool > 0) G.stageCool -= dt; if (G.comboT > 0) { G.comboT -= dt; if (G.comboT <= 0) G.combo = 0; }
   for (const o of W.objs) {
     if (o.cool > 0) o.cool -= dt; if (o.active > 0) o.active -= dt; if (o.ring > 0) o.ring -= dt; if (o.boostCool > 0) o.boostCool -= dt;
-    if (o.type === 'banana_tree' && o.bananas < 3) { o.regrow += dt; if (o.regrow > 22) { o.bananas++; o.regrow = 0; } }
-    if (o.type === 'bush') { o.regrow += dt; if (o.regrow > 30) { o.regrow = 0; if (o.sticks < 2) o.sticks++; if (o.berries < 2) o.berries++; } }
-    if (o.type === 'stonepile' && o.stones < 4) { o.regrow += dt; if (o.regrow > 35) { o.stones++; o.regrow = 0; } }
-    if (o.type === 'nutpile' && o.nuts < 6) { o.regrow += dt; if (o.regrow > 30) { o.nuts++; o.regrow = 0; } }
-    if (o.type === 'termite' && o.hp < 3) { o.regrow += dt; if (o.regrow > 25) { o.hp++; o.regrow = 0; } }
+    if (host && (o.type === 'banana_tree' && o.bananas < 3)) { o.regrow += dt; if (o.regrow > 22) { o.bananas++; o.regrow = 0; } }
+    if (host && (o.type === 'bush')) { o.regrow += dt; if (o.regrow > 30) { o.regrow = 0; if (o.sticks < 2) o.sticks++; if (o.berries < 2) o.berries++; } }
+    if (host && (o.type === 'stonepile' && o.stones < 4)) { o.regrow += dt; if (o.regrow > 35) { o.stones++; o.regrow = 0; } }
+    if (host && (o.type === 'nutpile' && o.nuts < 6)) { o.regrow += dt; if (o.regrow > 30) { o.nuts++; o.regrow = 0; } }
+    if (host && (o.type === 'termite' && o.hp < 3)) { o.regrow += dt; if (o.regrow > 25) { o.hp++; o.regrow = 0; } }
   }
-  for (const n of G.npcs) if (n.boostCool > 0) n.boostCool -= dt;
+  if (!host) for (const n of G.npcs) if (n.boostCool > 0) n.boostCool -= dt;
   G.aim = computeAim();
   updatePlayer(me, dt);
   if (me.act) { me.act.t += dt; if (me.act.done !== null && me.act.t >= me.act.dur) { const d = me.act.done; me.act = null; d && d(); } }
-  updateMini(dt); updateNpcs(dt); updateKeeper(G.keeper, dt); updateVisitors(dt); updatePickups(dt); updateProj(dt); updateParts(dt);
+  updateMini(dt); if (host) { updateNpcs(dt); updateKeeper(G.keeper, dt); updateVisitors(dt); } else updateNetEntities(dt); fadeVisitors(dt); updateRemotes(dt); updatePickups(dt); updateProj(dt); updateParts(dt); netTick(dt); if (me.splat > 0) me.splat -= dt;
   for (let i = G.floaters.length - 1; i >= 0; i--) { G.floaters[i].t += dt; if (G.floaters[i].t > 1.6) G.floaters.splice(i, 1); }
   for (let i = G.splats.length - 1; i >= 0; i--) { G.splats[i].t += dt; if (G.splats[i].t > 28) G.splats.splice(i, 1); }
   G.gateAnim = clamp(G.gateAnim + (G.gateOpen ? dt * 1.5 : 0), 0, 1);
@@ -372,11 +378,55 @@ function update(dt) {
   if (G.gateOpen && me.x > N + 1.2) win();
 }
 function win() {
-  G.state = 'won'; const secs = Math.round((performance.now() - G.startedAt) / 1000); addScore(100);
+  G.state = 'won'; Profile.record(G.score, true); const secs = Math.round((performance.now() - G.startedAt) / 1000); addScore(100);
   $('winText').innerHTML = `<p>Ты прокачался, перехитрил смотрителя и вырвался на свободу!</p><p>⭐ Очки: <b>${G.score}</b> (с бонусом за побег +100)<br>⏱ Время: <b>${Math.floor(secs / 60)} мин ${secs % 60} с</b><br>💪 ${G.st.str.lv} · 🤸 ${G.st.agi.lv} · 🧠 ${G.st.int.lv} · 🎭 ${G.st.cha.lv}<br>📋 Заданий: <b>${QUESTS.filter(q => q.done).length}/${QUESTS.length}</b> · 🏆 Достижений: <b>${ACHS.filter(a => a.on).length}/${ACHS.length}</b><br>🌱 Сид мира: <b>${G.W.seed}</b></p>`;
   $('win').style.display = 'flex'; $('tut').style.display = 'none'; $('prompt').style.display = 'none'; sfx.win();
+  $('winStay').style.display = isNet() && isHost() ? 'inline-block' : 'none';
+  if (isNet() && !isHost()) { NET.send({ t: 'won', sc: G.score }); setTimeout(netClose, 900); }
   for (let i = 0; i < 6; i++) setTimeout(() => emit(G.me.x, G.me.y, G.me.z + 2, 40, { kind: 'star', col: [P_.red, P_.yel, P_.blue, P_.pur, P_.lime], spread: 3, v0: 3, v1: 8, g: 8, life: 2.2 }), i * 300);
 }
+
+// сетевые награды и «удары по мне»
+function applyReward(r) {
+  const me = G.me; if (!me) return;
+  if (r.score) addScore(r.score);
+  if (r.cnt) for (const k in r.cnt) G.cnt[k] = (G.cnt[k] || 0) + r.cnt[k];
+  if (r.vis) visReward(r.vis);
+  if (r.heat) me.heat = Math.max(me.heat, r.heat);
+  if (r.fl) floater(r.fl[0], r.fl[1], r.fl[2], r.fl[3], r.fl[4]);
+  if (r.toast) toast(r.toast[0], r.toast[1]);
+  if (r.sfx && sfx[r.sfx]) sfx[r.sfx]();
+}
+function visReward(v) {   // попадание 💩 в зрителя: серия (комбо) считается у того, кто бросил
+  const fx = HIT_FX[v.fx]; G.cnt.hits++; G.combo = G.comboT > 0 ? G.combo + 1 : 1; G.comboT = 6; G.cnt.bestCombo = Math.max(G.cnt.bestCombo, G.combo);
+  const mult = Math.min(3, G.combo), pts = (15 + fx[3]) * mult;
+  addScore(pts); floater(v.x, v.y, 3, '+' + pts + ' ' + fx[2] + (mult > 1 ? ' x' + mult : ''), P_.org);
+  if (fx[1] === 'REC') { G.cnt.viral++; toast('Кто-то снял это на видео — ты звезда интернета! +80', 'good'); }
+  addXp('cha'); G.me.heat = Math.max(G.me.heat, 3);
+}
+function applyHurt(h) {
+  const me = G.me; if (!me) return;
+  if (h.caught) {
+    addScore(-20); me.stun = 1.2; me.act = null; endMini(); me.tween = null;
+    if (h.hadKey) toast('Смотритель отобрал ключ!', 'bad');
+    toast('Тебя поймали! −20 очков, назад на старт', 'bad'); sfx.bad();
+    me.x = G.W.spawn.x; me.y = G.W.spawn.y; me.z = groundAt(G.W, me.x, me.y); me.rz = me.z; me.vz = 0; me.heat = 0; G.camSnap = true; return;
+  }
+  if (h.stun) { me.stun = Math.max(me.stun, h.stun); me.act = null; if (G.mini) endMini(); }
+  if (h.push && walkableAt(G.W, h.push.x, h.push.y, me.z)) { me.x = h.push.x; me.y = h.push.y; }
+  if (h.lose) G.inv[h.lose] = 0;
+  if (h.score) addScore(h.score);
+  if (h.splat) me.splat = h.splat;
+  if (h.fl) floater(h.fl[0], h.fl[1], h.fl[2], h.fl[3], h.fl[4]);
+  if (h.toast) toast(h.toast[0], h.toast[1]);
+  if (h.sfx && sfx[h.sfx]) sfx[h.sfx]();
+  emit(me.x, me.y, me.z + 2, 8, { kind: 'star', col: P_.red, spread: 1.4, v0: 1, v1: 4, g: 8, life: .7 });
+}
+function netProj(kind, me, sol) {   // чужие видят полёт моего снаряда (только картинка)
+  if (!isNet()) return; const o = launchPoint(me), m = { t: 'proj', k: kind, x: o.x, y: o.y, z: o.z, vx: sol.vx, vy: sol.vy, vz: sol.vz };
+  if (isHost()) NET.bcast(m); else NET.send(m);
+}
+function hostPlayOn() { G.state = 'play'; const me = G.me; me.x = N - 4; me.y = G.W.gate.y + .5; me.z = 0; me.rz = 0; G.camSnap = true; $('win').style.display = 'none'; }
 
 // ───────── Обучение ─────────
 const nearestOf = (pred) => { let b = null, bd = 1e9; for (const o of G.W.objs) if (pred(o)) { const d = Math.hypot(o.x - G.me.x, o.y - G.me.y); if (d < bd) { bd = d; b = o; } } return b; };
@@ -432,6 +482,12 @@ function updateHud() {
   $('escapeInfo').innerHTML = `<span class="ks ${ks[1]}">${ks[0]}</span> · 🗝 ${G.hasKey ? '✔' : '✘'} · уровни ${lvSum()}/${NEED_SUM}${G.combo > 1 ? ' · 🔥×' + Math.min(3, G.combo) : ''}`;
   TOOLS.forEach((t, i) => { slotEls[i].classList.toggle('sel', i === G.tool); slotEls[i].classList.toggle('off', !t.ok()); slotEls[i].querySelector('em').textContent = t.count(); });
   $('seedInfo').textContent = '🌱 ' + G.W.seed; drawMinimap();
+  $('netTag').textContent = NET.role === 'host' ? '🌐 хост' : NET.role === 'client' ? '🌐 гость' : '';
+  const pls = livePlayers(); $('players').style.display = isNet() ? 'block' : 'none';
+  if (isNet()) $('players').innerHTML = '<h3>👥 Игроки</h3>' + pls.map(p => '<div class="pl' + (p.me ? ' me' : '') + '"><span>' + p.name + (G.keyHolder === p.netId ? ' 🗝' : '') + '</span><b>⭐' + (p.me ? G.score : (p.score || 0)) + ' · ур.' + (p.me ? lvSum() : (p.lv || 4)) + '</b></div>').join('');
+  const nm = id => (G.players.find(p => p.netId === id) || {}).name || '?';
+  $('duelBar').style.display = G.duel ? 'block' : 'none'; if (G.duel) $('duelBar').textContent = '⚔ Дуэль: ' + nm(G.duel.a) + ' ' + G.duel.sa + ' : ' + G.duel.sb + ' ' + nm(G.duel.b) + ' (до ' + G.duel.goal + ')';
+  $('invite').style.display = G.invite ? 'block' : 'none'; if (G.invite) $('invite').textContent = '⚔ ' + G.invite.name + ' вызывает тебя на дуэль говном — нажми Y (' + Math.ceil(G.invite.t) + ' с)';
   const pr = $('prompt'), me = G.me;
   if (me.act || G.mini || me.stun > 0 || G.state !== 'play') { pr.style.display = 'none'; return; }
   const t = nearestInteractable(), d = t && describe(t);
@@ -439,14 +495,15 @@ function updateHud() {
 }
 
 // ───────── Запуск ─────────
-function startGame(seed, withTut) {
+function startGame(seed, withTut, opts = {}) {
+  if (!opts.role) netClose();
   seed = (seed || '').trim() || randomSeed();
   resetState(); G.W = genWorld(seed); const W = G.W;
   buildOuter(W); buildMinimap();
-  G.me = newPlayer(W, 'Ты', FUR.brown); G.players = [G.me];
-  G.npcs = W.npcSpawns.map(s => newNpc(s, W)); G.keeper = newKeeper(W); G.vis = newVisitors(W);
+  G.me = newPlayer(W, opts.name || Profile.cur || 'Ты', FUR[opts.fur] || FUR.brown); G.players = [G.me];
+  G.npcs = W.npcSpawns.map(s => newNpc(s, W)); G.keeper = newKeeper(W); G.vis = newVisitors(W); Object.assign(G.keeper, { nx: G.keeper.x, ny: G.keeper.y, nz: G.keeper.z });
   G.camSnap = true; G.state = 'play'; G.stageCool = 0;
-  document.body.classList.remove('inmenu'); $('menu').style.display = 'none'; $('win').style.display = 'none'; $('tutAgain').style.display = 'block'; $('tut').style.display = 'none';
+  document.body.classList.remove('inmenu'); $('menu').style.display = 'none'; $('win').style.display = 'none'; $('tutAgain').style.display = 'block'; $('tut').style.display = 'none'; $('lostBox').style.display = 'none'; NET.last.clear();
   try { localStorage.setItem('chimpSeed2', seed); } catch (e) { }
   beep(600, .1); updateHud();
   if (withTut) tutStart();
@@ -466,6 +523,27 @@ $('startSkip').onclick = () => startGame($('seedInput').value, false);
 $('tutOk').onclick = () => { G.tutOk = true; document.activeElement.blur(); };
 $('tutSkip').onclick = () => { tutEnd(true); document.activeElement.blur(); };
 $('tutAgain').onclick = () => { if (G.state === 'play') tutStart(); document.activeElement.blur(); };
+// ── профиль и сетевые кнопки меню ──
+function lobbyMsg(t, bad) { const m = $('lobbyMsg'); m.textContent = t; m.style.color = bad ? '#ff9a8a' : '#a8e040'; }
+function refreshProfile() {
+  const p = Profile.info();
+  $('pfStatus').textContent = Profile.cur ? 'Профиль: ' + Profile.cur + ' · лучший счёт ' + p.best + ' · игр ' + p.games + ' · побегов ' + p.wins : 'Гость (профиль не выбран) — для сетевой игры нужен профиль';
+  $('hostBtn').disabled = $('joinBtn').disabled = !Profile.cur; $('logoutBtn').style.display = Profile.cur ? 'inline-block' : 'none';
+}
+$('pfName').value = (() => { try { return localStorage.getItem('chimpLastName') || ''; } catch (e) { return ''; } })();
+$('loginBtn').onclick = async () => { try { const r = await Profile.enter($('pfName').value, $('pfPass').value); $('pfPass').value = ''; lobbyMsg(r === 'created' ? 'Профиль создан и сохранён на этом устройстве' : 'Вход выполнен'); } catch (e) { lobbyMsg(e.message, true); } refreshProfile(); };
+$('logoutBtn').onclick = () => { Profile.logout(); refreshProfile(); lobbyMsg('Вы вышли из профиля'); };
+$('hostBtn').onclick = async () => {
+  const seed = $('seedInput').value.trim() || randomSeed(); $('seedInput').value = seed; lobbyMsg('Создаём сессию…');
+  try { await netHostOpen(seed); startGame(seed, false, { role: 'host' }); toast('Сессия создана! Друзья входят по сиду: ' + seed, 'good'); } catch (e) { netClose(); lobbyMsg(e.message, true); }
+};
+$('joinBtn').onclick = async () => {
+  const seed = $('seedInput').value.trim(); if (!seed) { lobbyMsg('Введи сид сессии', true); return; } lobbyMsg('Подключаемся…');
+  try { const w = await netJoinOpen(seed, Profile.cur); startGame(w.seed, false, { role: 'client', name: w.name, fur: w.fur }); applySnap(w.snap); for (const id in w.objs) { const o = G.W.objs.find(o => o.id === +id); if (o) applyObj(o, w.objs[id]); } toast('Ты в игре! Сид: ' + w.seed, 'good'); } catch (e) { netClose(); lobbyMsg(e.message, true); }
+};
+$('winStay').onclick = () => hostPlayOn();
+$('lostBtn').onclick = () => location.reload();
+refreshProfile();
 $('copySeed').onclick = () => { try { navigator.clipboard.writeText(G.W.seed); toast('Сид скопирован: ' + G.W.seed); } catch (e) { toast('Сид: ' + G.W.seed); } };
 requestAnimationFrame(frame);
 window.__g = { G, step(s) { for (let t = 0; t < s; t += .02) update(.02); updateHud(); }, startGame, renderWorld };

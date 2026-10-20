@@ -67,13 +67,21 @@
   .row2{display:flex;gap:10px;justify-content:center;flex-wrap:wrap;margin-top:10px}
   .soon{font-size:12px;opacity:.75;text-align:center;margin-top:8px}
   body.inmenu .panel,body.inmenu #hotbar,body.inmenu #tutAgain{display:none!important}
+  .pl{display:flex;justify-content:space-between;gap:6px;font-size:12px;margin:3px 0}.pl.me{color:#ffd23a}
+  #profileBox{border:3px solid #8486a0;padding:8px 12px;margin:10px 0;background:#26223e}
+  #profileBox input{font-family:inherit;font-size:14px;padding:5px 8px;background:#1b1726;color:#f6f2e2;border:3px solid #8486a0;width:150px}
+  #lobbyMsg{min-height:18px;font-size:13px;margin-top:4px;text-align:center}
   #win{display:none}#win .card{text-align:center}
 </style>
 </head>
 <body class="inmenu">
 <div id="stage"><canvas id="c"></canvas></div>
 
-<div class="panel" id="top"><div>⭐ <span id="score">0</span></div><div>⚡ <span class="bar" id="energyBar"><i></i></span></div><div id="escapeInfo"></div><div id="seedInfo" title="Сид мира (клик в панели справа — копировать)"></div></div>
+<div class="panel" id="top"><div>⭐ <span id="score">0</span></div><div>⚡ <span class="bar" id="energyBar"><i></i></span></div><div id="escapeInfo"></div><div id="seedInfo" title="Сид мира"></div><div id="netTag" style="color:#68b2f0"></div></div>
+<div id="duelBar" class="panel" style="display:none;top:56px;left:50%;transform:translateX(-50%);border-color:#ff7a60;font-weight:700;white-space:nowrap"></div>
+<div id="invite" class="panel" style="display:none;top:100px;left:50%;transform:translateX(-50%);border-color:#ffd23a;font-weight:700;background:#4a3a10"></div>
+<div class="panel" id="players" style="display:none;left:8px;top:150px;width:200px"></div>
+<div class="overlay" id="lostBox" style="display:none"><div class="card" style="text-align:center"><h1>🔌 Связь потеряна</h1><p>Хост закрыл игру или пропал интернет.</p><div class="row2"><button id="lostBtn">В меню</button></div></div></div>
 <div class="panel" id="stats"><h3>🐵 Характеристики</h3><div id="statRows"></div></div>
 <div class="panel" id="quests"><h3>📋 Задания</h3><div id="qList"></div><h3 style="margin-top:8px">🏆 Достижения</h3><div id="ach"></div><div style="margin-top:6px"><button class="sm ghost" id="copySeed">📋 Скопировать сид</button></div></div>
 <div id="hotbar"></div>
@@ -92,13 +100,14 @@
       <span>🌱 Сид мира:</span><input id="seedInput" maxlength="24" spellcheck="false"><button class="sm ghost" id="seedRnd" title="Случайный сид">🎲</button>
     </div>
     <p class="soon" style="margin-top:-4px">Одинаковый сид всегда создаёт одинаковый мир — по нему друзья смогут зайти в твой мир в сетевой игре.</p>
+    <div id="profileBox"><div id="pfStatus" style="font-size:13px;margin-bottom:6px">Гость</div><div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center"><input id="pfName" maxlength="14" placeholder="имя (логин)" autocomplete="off"><input id="pfPass" type="password" placeholder="пароль" autocomplete="off"><button class="sm" id="loginBtn">Войти / создать</button><button class="sm ghost" id="logoutBtn" style="display:none">Выйти</button></div><div class="soon" style="text-align:left;margin-top:5px">Профиль хранится только на этом устройстве, пароль никуда не отправляется. По сети уходит лишь имя.</div></div>
     <div class="cols">
       <div><h3>Управление</h3>
         <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> идти · <kbd>Shift</kbd> бег · <kbd>C</kbd> красться<br>
         <kbd>Пробел</kbd> прыжок (лазай по ярусам!)<br>
         <kbd>E</kbd> действие · <kbd>R</kbd> съесть банан<br>
         <kbd>Мышь</kbd> — прицел · <kbd>ЛКМ</kbd> применить инструмент<br>
-        <kbd>ПКМ</kbd>/<kbd>Q</kbd> крик · <kbd>1-6</kbd>/колесо — инструмент</div>
+        <kbd>ПКМ</kbd>/<kbd>Q</kbd> крик · <kbd>1-6</kbd>/колесо — инструмент<br><kbd>Y</kbd> принять дуэль говном</div>
       <div><h3>Инструменты</h3>
         1 💩 бросок · 2 🍌 банан (приманка, подножка)<br>
         3 🪨 камень (гонг, попугаи) · 4 🥢 палка (термиты, клады, шкафчик)<br>
@@ -107,17 +116,23 @@
     </div>
     <p style="font-size:13px">Выбраться: добудь 🗝 ключ (стащи у смотрителя, свали его бананом или взломай шкафчик в сторожке) и подними сумму уровней до <b id="needLv"></b>. Потом — к воротам на востоке.</p>
     <div class="row2"><button id="startBtn">🎓 Играть с обучением</button><button id="startSkip" class="ghost">Без обучения</button></div>
-    <div class="soon">🌐 Сетевая игра (вход по логину, комнаты по сиду) — следующий этап.</div>
+    <div style="text-align:center;margin-top:12px;font-size:13px;font-weight:700;color:#68b2f0">🌐 СЕТЕВАЯ ИГРА (нужен профиль)</div>
+    <div class="row2" style="margin-top:6px"><button id="hostBtn" class="ghost">Создать сессию по сиду</button><button id="joinBtn" class="ghost">Войти в сессию по сиду</button></div>
+    <div id="lobbyMsg"></div>
+    <div class="soon">Один создаёт сессию с сидом и становится хостом, остальные вводят тот же сид. Дуэль: подойди к игроку и нажми E, принять вызов — клавиша Y.</div>
   </div>
 </div>
-<div class="overlay" id="win"><div class="card"><h1>🎉 СВОБОДА!</h1><div id="winText"></div><div class="row2"><button onclick="location.reload()">Играть снова</button></div></div></div>
+<div class="overlay" id="win"><div class="card"><h1>🎉 СВОБОДА!</h1><div id="winText"></div><div class="row2"><button id="winStay" style="display:none" class="ghost">Остаться в мире (хост)</button><button onclick="location.reload()">Играть снова</button></div></div></div>
 
 <script src="js/util.js"></script>
 <script src="js/pixel.js"></script>
 <script src="js/world.js"></script>
 <script src="js/sprites.js"></script>
 <script src="js/render.js"></script>
+<script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
 <script src="js/entities.js"></script>
+<script src="js/net.js"></script>
+<script src="js/profile.js"></script>
 <script src="js/game.js"></script>
 </body>
 </html>

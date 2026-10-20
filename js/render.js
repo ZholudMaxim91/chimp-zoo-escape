@@ -161,7 +161,7 @@ function drawPlayer(p) {
   const s = chimpSpr(p.fur, p.fb ? 'f' : 'b', frameOf(p), actName(p));
   const y = SY(p.x, p.y, p.rz) - bob;
   if (p.stun > 0) { blit(g, s, x + Math.round(Math.sin(G.t * 40)), y, flip); pxText(g, '*', x, y - 28, P_.yel, 10); } else blit(g, s, x, y, flip);
-  if (p.invuln > 0 && Math.floor(G.t * 10) % 2) { /* мерцание */ }
+  if (p.splat > 0) { const sx = x - 3, sy = y - 12; rect(g, sx, sy, 4, 3, P_.d0); px(g, sx + 4, sy + 1, P_.d1); px(g, sx - 1, sy + 2, P_.d1); rect(g, x + 1, y - 22, 3, 2, P_.d0); px(g, x + 4, y - 21, P_.d1); }
   if (p.act && p.act.dur > .5) { const w = 20, pr = clamp(p.act.t / p.act.dur, 0, 1); rect(g, x - w / 2 - 1, y - 33, w + 2, 4, P_.ink); rect(g, x - w / 2, y - 32, w * pr, 2, P_.yel); }
   if (p.name) pxText(g, p.name, x, y - 34, p.me ? P_.white : P_.teal, 7);
 }
