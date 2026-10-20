@@ -1,0 +1,372 @@
+'use strict';
+// ───────── Существа: физика, ИИ животных и смотрителя, снаряды, подбираемое ─────────
+const GRAV = 16, GP = 12;           // гравитация для прыжков и для брошенных предметов (ярусов/с²)
+const STEP = 1.02;                  // на сколько ярусов можно «шагнуть» вверх без прыжка
+
+function walkableAt(W, x, y, z, r = .28, step = STEP, noWater = false, gateOk = false) {
+  for (const [px, py] of [[x - r, y - r], [x + r, y - r], [x - r, y + r], [x + r, y + r]]) {
+    const tx = Math.floor(px), ty = Math.floor(py);
+    if (tx < 0 || ty < 0 || tx >= N || ty >= N) {
+      if (gateOk && G.gateOpen && tx >= N && tx < N + 5 && ty >= W.gate.y - 1 && ty <= W.gate.y + 1) continue;
+      return false;
+    }
+    const i = ty * N + tx;
+    if (W.blocked[i]) return false;
+    if (noWater && W.kind[i] === K.WATER) return false;
+    if (W.h[i] > z + step) return false;
+  }
+  return true;
+}
+function setFacing(e, dx, dy) {
+  const l = Math.hypot(dx, dy) || 1; dx /= l; dy /= l; e.dx = dx; e.dy = dy;
+  const sxn = dx - dy, syn = dx + dy;
+  if (Math.abs(sxn) > .05) e.fx = sxn > 0 ? 1 : -1; if (Math.abs(syn) > .05) e.fb = syn > 0;
+}
+function stepEntity(e, dx, dy, dt, speed, o = {}) {
+  const W = G.W, sp = speed * dt, r = o.r ?? .28;
+  let moved = false;
+  const nx = e.x + dx * sp, ny = e.y + dy * sp;
+  if (walkableAt(W, nx, e.y, e.z, r, STEP, o.noWater, o.gateOk)) { e.x = nx; moved = true; }
+  if (walkableAt(W, e.x, ny, e.z, r, STEP, o.noWater, o.gateOk)) { e.y = ny; moved = true; }
+  e.moving = moved; if (moved) setFacing(e, dx, dy);
+  return moved;
+}
+function physics(e, dt) {
+  if (e.tween) return;
+  const W = G.W, gh = groundAt(W, e.x, e.y);
+  if (e.vz > 0 || e.z > gh + 1e-3) {
+    e.vz -= GRAV * dt; e.z += e.vz * dt; e.grounded = false;
+    if (e.z <= gh && e.vz <= 0) { const hard = -e.vz; e.z = gh; e.vz = 0; e.grounded = true; if (e.onLand) e.onLand(hard); }
+  } else { e.z = gh; e.grounded = true; e.vz = 0; }
+  e.rz += (e.z - e.rz) * Math.min(1, dt * (e.z < e.rz ? 22 : 16));
+  if (Math.abs(e.rz - e.z) < .02) e.rz = e.z;
+}
+const mk = o => Object.assign({ x: 0, y: 0, z: 0, rz: 0, vz: 0, grounded: true, fx: 1, fb: true, moving: false, dx: 1, dy: 0, t: 0 }, o);
+function tileFree(x, y, noWater = true) { const W = G.W, tx = Math.floor(x), ty = Math.floor(y); return tx > 0 && ty > 0 && tx < N - 1 && ty < N - 1 && !W.blocked[ty * N + tx] && (!noWater || W.kind[ty * N + tx] !== K.WATER); }
+function randomNear(e, r, tries = 12) { for (let i = 0; i < tries; i++) { const a = rnd(0, 6.28), d = rnd(2, r), x = e.hx + Math.cos(a) * d, y = e.hy + Math.sin(a) * d; if (tileFree(x, y) && Math.abs(groundAt(G.W, x, y) - e.z) <= 1.01) return { x, y }; } return null; }
+function goTo(e, tx, ty, dt, speed, o = {}) { const dx = tx - e.x, dy = ty - e.y, d = Math.hypot(dx, dy); if (d < .15) { e.moving = false; return true; } stepEntity(e, dx / d, dy / d, dt, speed, o); return false; }
+function wander(e, dt, speed, radius) {
+  if (e.wait > 0) { e.wait -= dt; e.moving = false; return; }
+  if (!e.target) { e.target = randomNear(e, radius); if (!e.target) { e.wait = 1; return; } e.stuck = 0; }
+  const px = e.x, py = e.y, arrived = goTo(e, e.target.x, e.target.y, dt, speed, { noWater: true });
+  e.stuck = (Math.abs(e.x - px) + Math.abs(e.y - py) < .001) ? (e.stuck || 0) + dt : 0;
+  if (arrived || e.stuck > 1) { e.target = null; e.wait = rnd(1, 4); }
+}
+function nearestPickup(e, type, r) { let b = null, bd = r; for (const p of G.pickups) if (p.type === type && !p.fly) { const d = dist(e, p); if (d < bd) { b = p; bd = d; } } return b; }
+
+// ───────── Игрок ─────────
+function newPlayer(W, name, fur) {
+  return mk({ me: true, name, fur, x: W.spawn.x, y: W.spawn.y, z: 0, stun: 0, crouch: false, sprint: false, act: null, tween: null, heat: 0, invuln: 0, hootCool: 0, jumpHeld: false });
+}
+function updatePlayer(p, dt) {
+  const W = G.W, K_ = G.keys;
+  if (p.stun > 0) p.stun -= dt; if (p.heat > 0) p.heat -= dt; if (p.hootCool > 0) p.hootCool -= dt; if (p.invuln > 0) p.invuln -= dt;
+  if (p.tween) { updateTween(p, dt); return; }
+  let dx = 0, dy = 0;
+  if (!p.act && !G.mini && p.stun <= 0) {
+    if (K_.has('KeyW') || K_.has('ArrowUp')) { dx--; dy--; }
+    if (K_.has('KeyS') || K_.has('ArrowDown')) { dx++; dy++; }
+    if (K_.has('KeyA') || K_.has('ArrowLeft')) { dx--; dy++; }
+    if (K_.has('KeyD') || K_.has('ArrowRight')) { dx++; dy--; }
+  }
+  const want = dx || dy;
+  p.crouch = K_.has('KeyC') || K_.has('ControlLeft');
+  p.sprint = (K_.has('ShiftLeft') || K_.has('ShiftRight')) && G.energy > 3 && !p.crouch && want;
+  if (want) {
+    const l = Math.hypot(dx, dy); dx /= l; dy /= l;
+    let sp = (p.crouch ? 1.7 : p.sprint ? 5.0 : 3.1) + .22 * (G.st.agi.lv - 1) * (p.crouch ? .5 : 1);
+    if (G.energy <= 0) sp *= .55;
+    const gh = groundAt(W, p.x, p.y); if (W.kind[Math.floor(p.y) * N + Math.floor(p.x)] === K.WATER && p.grounded) { sp *= .6; if (Math.random() < .08) { emit(p.x, p.y, gh, 3, { col: P_.w3, spread: 1.2, v0: 1, v1: 3 }); } }
+    stepEntity(p, dx, dy, dt, sp, { gateOk: true });
+    G.tutDist += sp * dt * (p.moving ? 1 : 0); if (p.sprint) G.cnt.sprintT += dt;
+    G.dustT -= dt; if (p.moving && p.grounded && G.dustT <= 0) { G.dustT = p.sprint ? .08 : .17; emit(p.x, p.y, p.z, 1, { kind: 'dust', spread: .4, v0: .3, v1: 1, g: 0, life: .5 }); }
+  } else p.moving = false;
+  physics(p, dt);
+  // прыжок
+  if (K_.has('Space') && p.grounded && !p.act && !G.mini && p.stun <= 0 && !p.jumpHeld) { p.vz = 7.4 + .5 * (G.st.agi.lv - 1); p.grounded = false; p.jumpHeld = true; G.cnt.jumps++; sfx.jump(); emit(p.x, p.y, p.z, 4, { kind: 'dust', spread: .8, v0: .2, v1: 1, g: 0, life: .5 }); }
+  if (!K_.has('Space')) p.jumpHeld = false;
+  p.onLand = hard => { if (hard > 4) { emit(p.x, p.y, p.z, 5, { kind: 'dust', spread: 1, v0: .3, v1: 1, g: 0, life: .5 }); if (W.kind[Math.floor(p.y) * N + Math.floor(p.x)] === K.WATER) sfx.splash(); } };
+  // энергия
+  G.energy = clamp(G.energy - (p.sprint ? 1.3 : p.moving ? .35 : .12) * dt, 0, 100);
+}
+function updateTween(p, dt) {
+  const t = p.tween; t.t += dt; const k = clamp(t.t / t.dur, 0, 1), e = k * k * (3 - 2 * k);
+  p.x = lerp(t.from.x, t.to.x, e); p.y = lerp(t.from.y, t.to.y, e);
+  p.z = lerp(t.from.z, t.to.z, e) + (t.arc ? Math.sin(k * Math.PI) * t.arc : 0); p.rz = p.z; p.grounded = false; p.moving = false;
+  if (k >= 1) { p.tween = null; p.z = t.to.z; p.vz = 0; p.grounded = true; p.rz = p.z; if (t.done) t.done(); }
+}
+function startTween(p, to, dur, arc, done) { p.tween = { t: 0, dur, from: { x: p.x, y: p.y, z: p.z }, to, arc, done }; setFacing(p, to.x - p.x, to.y - p.y); }
+
+// ───────── Смотритель ─────────
+function newKeeper(W) {
+  const w = W.wps[0] || { x: 10, y: 10 };
+  return mk({ x: w.x, y: w.y, z: groundAt(W, w.x, w.y), rz: groundAt(W, w.x, w.y), state: 'patrol', wp: 0, wait: 1, hasKey: true, stunT: 0, seeT: 0, lost: 0, target: null, lookT: 0, cool: 0, visRange: 8, speedP: 2.0, lastSeen: null });
+}
+function keeperSees(k, p) {
+  const d = Math.hypot(p.x - k.x, p.y - k.y);
+  let range = 8.5; if (p.crouch) range *= .5; else if (p.sprint) range *= 1.3;
+  if (Math.abs(p.z - k.z) > 2.6) range *= .45;
+  if (d > range) return false;
+  if (d < 1.8) return true;
+  const ang = Math.atan2(p.y - k.y, p.x - k.x), kf = Math.atan2(k.dy, k.dx); let da = Math.abs(ang - kf); da = Math.min(da, Math.PI * 2 - da);
+  return da < .85;
+}
+function alertKeeper(k, x, y, why) { if (k.state === 'stunned' || k.state === 'chase') return; k.state = 'suspicious'; k.target = { x, y }; k.lookT = 0; k.suspWhy = why; }
+function updateKeeper(k, dt) {
+  const W = G.W, p = G.me; if (!p) return;
+  if (k.cool > 0) k.cool -= dt;
+  k.visRange = p.crouch ? 4.2 : p.sprint ? 11 : 8.5;
+  if (k.state === 'stunned') { k.stunT -= dt; k.moving = false; physics(k, dt); if (k.stunT <= 0) { k.state = 'suspicious'; k.target = { x: p.x, y: p.y }; k.lookT = 0; } return; }
+  const sees = keeperSees(k, p);
+  const carrying = G.hasKey;
+  if (sees) {
+    k.seeT += dt; k.lastSeen = { x: p.x, y: p.y };
+    const dd = dist(k, p);
+    if ((p.heat > 0 || carrying || dd < 2.2 || k.seeT > 4) && k.state !== 'chase') { k.state = 'chase'; k.lost = 0; sfx.bad(); toast('Смотритель заметил тебя!', 'bad'); }
+    else if (k.state === 'patrol') { k.state = 'suspicious'; k.target = { x: p.x, y: p.y }; k.lookT = 0; }
+  } else { k.seeT = Math.max(0, k.seeT - dt * 2); }
+  if (k.state === 'chase') {
+    if (!sees) { k.lost += dt; if (k.lost > 4 || dist(k, p) > 16) { k.state = 'suspicious'; k.target = k.lastSeen || { x: k.x, y: k.y }; k.lookT = 0; } } else k.lost = 0;
+    const tp = sees ? p : (k.lastSeen || p); goTo(k, tp.x, tp.y, dt, 3.8 + (G.hasKey ? .3 : 0), { r: .3 });
+    if (sees && dist(k, p) < .9 && Math.abs(k.z - p.z) < 1.5 && !p.tween) caught(k);
+  } else if (k.state === 'suspicious') {
+    if (k.target && goTo(k, k.target.x, k.target.y, dt, 2.5)) { k.moving = false; k.lookT += dt; const a = Math.atan2(k.dy, k.dx) + dt * 2.2; setFacing(k, Math.cos(a), Math.sin(a)); if (k.lookT > 2.6) { k.state = 'patrol'; k.target = null; let b = 0, bd = 1e9; W.wps.forEach((w, i) => { const d = Math.hypot(w.x - k.x, w.y - k.y); if (d < bd) { bd = d; b = i; } }); k.wp = b; k.wait = .5; } }
+    else if (!k.target) k.state = 'patrol';
+  } else { // patrol
+    if (k.wait > 0) { k.wait -= dt; k.moving = false; const a = Math.atan2(k.dy, k.dx) + Math.sin(G.t * .9) * dt * .8; setFacing(k, Math.cos(a), Math.sin(a)); }
+    else { const w = W.wps[k.wp]; if (!w) return; const px = k.x, py = k.y; if (goTo(k, w.x, w.y, dt, k.speedP)) { k.wp = (k.wp + 1) % W.wps.length; k.wait = rnd(1, 2.5); } k.stuck = Math.abs(k.x - px) + Math.abs(k.y - py) < .001 ? (k.stuck || 0) + dt : 0; if (k.stuck > 1) { k.wp = (k.wp + 1) % W.wps.length; k.stuck = 0; } }
+  }
+  physics(k, dt);
+}
+function caught(k) {
+  const p = G.me;
+  addScore(-20); p.stun = 1.2; p.act = null; G.mini = null; renderMini();
+  if (G.hasKey) { G.hasKey = false; k.hasKey = true; toast('Смотритель отобрал ключ!', 'bad'); }
+  toast('Тебя поймали! −20 очков, назад на старт', 'bad'); sfx.bad();
+  p.x = G.W.spawn.x; p.y = G.W.spawn.y; p.z = groundAt(G.W, p.x, p.y); p.rz = p.z; p.vz = 0; p.heat = 0; p.tween = null; G.camSnap = true;
+  k.state = 'patrol'; k.wait = 3; k.seeT = 0; k.lost = 0; k.cool = 6;
+}
+
+// ───────── Животные ─────────
+function newNpc(sp, W) {
+  const z = groundAt(W, sp.x, sp.y);
+  const n = mk({ sp: sp.sp, x: sp.x, y: sp.y, z, rz: z, hx: sp.x, hy: sp.y, name: sp.name, id: sp.sp + Math.random(), wait: rnd(0, 2) });
+  if (sp.sp === 'chimp') Object.assign(n, { fur: { brown: FUR.brown, dark: FUR.dark, ginger: FUR.ginger }[sp.fur] || FUR.brown, bond: 0, fleeT: 0, want: false });
+  if (sp.sp === 'gorilla') Object.assign(n, { state: 'idle', full: 0, rage: 0, eatT: 0, pushCool: 0, pacified: 0 });
+  if (sp.sp === 'parrot') Object.assign(n, { col: sp.col, flying: true, z: 5, rz: 5, tx: sp.x, ty: sp.y, perch: 0, fleeT: 0, say: '', sayT: 0, tz: 5 });
+  if (sp.sp === 'tortoise') Object.assign(n, { bounceCool: 0 });
+  return n;
+}
+function updateNpcs(dt) {
+  const me = G.me, W = G.W;
+  for (const n of G.npcs) {
+    n.t += dt;
+    if (n.sp === 'chimp') aiChimp(n, dt, me);
+    else if (n.sp === 'gorilla') aiGorilla(n, dt, me);
+    else if (n.sp === 'parrot') aiParrot(n, dt, me);
+    else if (n.sp === 'tortoise') aiTortoise(n, dt, me);
+    if (n.sp !== 'parrot') physics(n, dt);
+  }
+}
+function eatPickup(n, p) { const i = G.pickups.indexOf(p); if (i >= 0) G.pickups.splice(i, 1); emit(p.x, p.y, p.z + 1, 4, { col: P_.yel, spread: 1, v0: 1, v1: 3 }); }
+function aiChimp(n, dt, me) {
+  if (n.mood && (n.moodT -= dt) <= 0) n.mood = null;
+  const dme = dist(n, me);
+  if (n.fleeT > 0) { n.fleeT -= dt; stepEntity(n, (n.x - me.x) / (dme || 1), (n.y - me.y) / (dme || 1), dt, 3.2, { noWater: true }); return; }
+  const b = nearestPickup(n, 'banana', 9);
+  if (b) { if (goTo(n, b.x, b.y, dt, 2.4, { noWater: true }) || dist(n, b) < .6) { eatPickup(n, b); n.bond = Math.min(100, n.bond + 18); n.mood = 'happy'; n.moodT = 2; floater(n.x, n.y, n.z, '+дружба', P_.pink); checkBond(n); } return; }
+  n.want = n.bond < 50 && dme < 7 && G.inv.banana > 0;
+  if (n.bond >= 50) {
+    if (dme > 3.4 && Math.abs(me.z - n.z) < 1.6) goTo(n, me.x + rnd(-1, 1), me.y + rnd(-1, 1), dt, 3.0, { noWater: true }); else n.moving = false;
+    if (dme > 18) { n.x = me.x - 1; n.y = me.y; n.z = groundAt(G.W, n.x, n.y); }
+  } else wander(n, dt, 1.2, 7);
+}
+function checkBond(n) { if (n.bond >= 50 && !n.friend) { n.friend = true; G.cnt.friends++; toast(`${n.name} теперь твой друг! (E — подсадка)`, 'good'); sfx.up(); emit(n.x, n.y, n.z + 3, 10, { kind: 'star', col: [P_.pink, P_.yel], spread: 1.5, v0: 1, v1: 4, g: 6, life: 1.2 }); } }
+function aiGorilla(n, dt, me) {
+  if (n.pushCool > 0) n.pushCool -= dt; if (n.full > 0) n.full -= dt; if (n.rage > 0) n.rage -= dt; if (n.pacified > 0) n.pacified -= dt;
+  const dme = dist(n, me); n.act = '';
+  const b = nearestPickup(n, 'banana', 13);
+  if (n.state === 'eat') { n.eatT -= dt; n.moving = false; n.act = 'angry'; if (n.eatT <= 0) { n.state = 'idle'; n.full = 25; } return; }
+  if (b && n.full <= 0 && n.rage <= 0) { if (goTo(n, b.x, b.y, dt, 3.0, { noWater: true, r: .4 }) || dist(n, b) < .8) { eatPickup(n, b); n.state = 'eat'; n.eatT = 4; G.cnt.decoy++; floater(n.x, n.y, n.z, 'ням!', P_.yel); } return; }
+  const wants = (G.inv.banana > 0 && n.full <= 0 && n.pacified <= 0 && dme < 7.5) || n.rage > 0;
+  if (wants && Math.abs(me.z - n.z) < 2.2) {
+    if (n.state !== 'chase') { n.state = 'chase'; sfx.hoot(); }
+    stepEntity(n, (me.x - n.x) / (dme || 1), (me.y - n.y) / (dme || 1), dt, 3.35, { noWater: true, r: .4 });
+    if (dme < 1.1 && n.pushCool <= 0 && !me.tween) {
+      n.pushCool = 2.5; n.rage = 0; me.stun = .9; me.act = null; G.mini = null; renderMini(); addScore(-10);
+      const lost = G.inv.banana; G.inv.banana = 0; n.full = lost > 0 ? 18 : 6;
+      const nx = me.x + (me.x - n.x) / (dme || 1) * 1.8, ny = me.y + (me.y - n.y) / (dme || 1) * 1.8; if (tileFree(nx, ny, false) && walkableAt(G.W, nx, ny, me.z)) { me.x = nx; me.y = ny; }
+      toast(lost ? `Горилла отобрала бананы (${lost}) и толкнула тебя!` : 'Горилла толкнула тебя!', 'bad'); sfx.bad(); emit(me.x, me.y, me.z + 2, 8, { kind: 'star', col: P_.red, spread: 1.4, v0: 1, v1: 4, g: 8, life: .7 }); n.state = 'idle';
+    }
+  } else { n.state = 'idle'; wander(n, dt, .9, 7); if (n.moving === false && Math.random() < .004) n.act = 'beat'; }
+}
+function aiTortoise(n, dt, me) {
+  if (n.bounceCool > 0) n.bounceCool -= dt;
+  wander(n, dt, .55, 6);
+  const d = dist(n, me);
+  if (d < .8 && me.vz < 0 && me.z - n.z > .2 && me.z - n.z < 1.4 && n.bounceCool <= 0 && !me.tween) {
+    me.vz = 9.5 + .3 * (G.st.agi.lv - 1); me.grounded = false; n.bounceCool = .5; G.cnt.bounces++; sfx.jump(); emit(n.x, n.y, n.z, 6, { kind: 'dust', spread: 1, v0: .3, v1: 1, g: 0, life: .5 }); floater(n.x, n.y, n.z + 1, 'БОИНГ!', P_.lime);
+  }
+}
+const PARROT_SAY = ['Попка!', 'Банан!', 'Ку-ку!', 'Кто там?', 'Ай-ай!', 'Привет!'];
+function aiParrot(n, dt, me) {
+  if (n.sayT > 0) n.sayT -= dt;
+  if (n.fleeT > 0) n.fleeT -= dt;
+  const k = G.keeper; if (k && k.state === 'chase' && dist(n, k) < 12 && n.sayT <= 0) { n.say = 'Тревога!'; n.sayT = 2.5; }
+  else if (n.sayT <= 0 && dist(n, me) < 6 && Math.random() < .004) { n.say = pick(PARROT_SAY); n.sayT = 2.2; }
+  if (n.perch > 0) { n.perch -= dt; n.flying = false; n.rz = n.z; if (n.perch <= 0) n.flying = true; return; }
+  n.flying = true;
+  const dx = n.tx - n.x, dy = n.ty - n.y, d = Math.hypot(dx, dy), sp = n.fleeT > 0 ? 5.5 : 2.6;
+  if (d < .6) { // новая цель или посадка на дерево
+    if (Math.random() < .28 && G.W.objs.some(o => o.type === 'tree')) { const trees = G.W.objs.filter(o => o.type === 'tree' || o.type === 'banana_tree'); const t = pick(trees); n.tx = t.x; n.ty = t.y; n.landing = t; n.tz = groundAt(G.W, t.x, t.y) + 3; }
+    else { n.tx = rnd(3, N - 3); n.ty = rnd(3, N - 3); n.landing = null; n.tz = groundAt(G.W, n.tx, n.ty) + rnd(3.5, 6); }
+    if (n.landing && d < .6 && n.z < n.tz + 1) { n.perch = rnd(5, 10); }
+  } else { n.x += dx / d * sp * dt; n.y += dy / d * sp * dt; setFacing(n, dx, dy); n.moving = true; }
+  n.z += (n.tz - n.z) * Math.min(1, dt * 1.5); n.rz = n.z + Math.sin(G.t * 3 + n.hx) * .25;
+  if (n.landing && Math.hypot(n.landing.x - n.x, n.landing.y - n.y) < .8) { n.perch = rnd(5, 10); n.z = n.tz; }
+}
+
+// ───────── Зрители ─────────
+const HIT_FX = [   // [вес, значок, подпись, очки]
+  [30, 'ААА!', 'Визг!', 20], [20, 'ЛЁД!', 'Уронил мороженое', 25], [20, 'ШЛЯПА', 'Слетела шляпа', 25],
+  [15, 'ТТ..', 'Убежал в слезах', 35], [10, 'ХА-ХА', 'Малыш хохочет', 20], [5, 'REC', 'ВИРУСНОЕ ВИДЕО!', 80],
+];
+function newVisitors(W) {
+  return W.visitors.map((v, i) => ({
+    x: v.x, y: v.y, side: v.side, on: Math.random() < .65, a: 0, next: rnd(5, 18), ph: rnd(0, 6), fl: i % 2 === 0, splat: 0, cheer: 0, emo: null,
+    col: pick([P_.red, P_.blue, P_.yel2, P_.pur, P_.teal, P_.org, P_.pink]), pants: pick(['#35465e', '#4a3a2a', '#2a2a30', '#5a4a6a']), hair: pick(['#3a2a1a', '#c9a24a', '#222', '#8a3a1a']),
+    hat: pick([0, 1, 2, 2]), kid: Math.random() < .25, skin: pick([P_.sk0, P_.sk1, '#8a5a3a', '#f2c9a0']),
+  })).map(v => { v.a = v.on ? 1 : 0; return v; });
+}
+function updateVisitors(dt) {
+  for (const v of G.vis) {
+    v.next -= dt; if (v.next <= 0) { v.on = !v.on; v.next = rnd(8, 22); }
+    v.a = clamp(v.a + (v.on ? dt : -dt) * 1.5, 0, 1);
+    if (v.cheer > 0) v.cheer -= dt; if (v.splat > 0) v.splat -= dt; if (v.emo) { v.emo.t -= dt; if (v.emo.t <= 0) v.emo = null; }
+  }
+  G.peanutT -= dt; if (G.peanutT <= 0) { G.peanutT = rnd(7, 12); visitorToss('peanut'); }
+}
+function visitorToss(type, from) {
+  const act = G.vis.filter(v => v.on && v.a > .8); if (!act.length || G.pickups.length > 14) return;
+  const v = from || pick(act), W = G.W;
+  for (let i = 0; i < 20; i++) {
+    const tx = clamp(v.x + rnd(-4, 4), 2, N - 2), ty = clamp(v.y + rnd(-4, 4), 2, N - 2);
+    const x = v.side === 'n' ? tx : rnd(2, 6), y = v.side === 'n' ? rnd(2, 6) : ty;
+    if (tileFree(x, y) && Math.abs(groundAt(W, x, y)) <= 0) { G.pickups.push({ type, x, y, z: groundAt(W, x, y), fly: { sx: v.x, sy: v.y, t: 0, fl: .9 }, age: 0 }); return; }
+  }
+}
+function updatePickups(dt) {
+  const me = G.me;
+  for (let i = G.pickups.length - 1; i >= 0; i--) {
+    const p = G.pickups[i]; p.age += dt;
+    if (p.fly) { p.fly.t += dt; const k = p.fly.t / p.fly.fl; if (k >= 1) { p.fly = null; p.z = groundAt(G.W, p.x, p.y); continue; } continue; }
+    if (p.life && p.age > p.life) { G.pickups.splice(i, 1); continue; }
+    if (p.age > 70 && p.type !== 'coin') { G.pickups.splice(i, 1); continue; }
+    if (dist(p, me) < .75 && Math.abs(me.z - p.z) < 1.6 && !me.tween) { collectPickup(p); G.pickups.splice(i, 1); continue; }
+    // тортилла/горилла/шимпанзе едят бананы (см. ИИ)
+    if (p.type === 'banana') for (const n of G.npcs) if (n.sp === 'tortoise' && dist(n, p) < .7) { eatPickup(n, p); break; }
+  }
+}
+function collectPickup(p) {
+  switch (p.type) {
+    case 'peanut': G.cnt.peanut++; addEnergy(8); addScore(3 + G.st.cha.lv); floater(p.x, p.y, p.z + 1, '+' + (3 + G.st.cha.lv), P_.d4); sfx.eat(); break;
+    case 'coin': G.inv.coin++; addScore(10); floater(p.x, p.y, p.z + 1, '+10', P_.yel); sfx.ok(); break;
+    case 'banana': G.inv.banana = Math.min(9, G.inv.banana + 1); floater(p.x, p.y, p.z + 1, '+банан', P_.yel); sfx.eat(); break;
+    case 'nut': G.inv.nut = Math.min(9, G.inv.nut + 1); floater(p.x, p.y, p.z + 1, '+орех', P_.d3); sfx.eat(); break;
+    case 'stone': G.inv.stone = Math.min(9, G.inv.stone + 1); floater(p.x, p.y, p.z + 1, '+камень', P_.r3); sfx.tick(); break;
+    case 'stick': G.inv.stick = Math.min(5, G.inv.stick + 1); floater(p.x, p.y, p.z + 1, '+палка', P_.d3); sfx.tick(); break;
+  }
+}
+
+// ───────── Снаряды и прицеливание ─────────
+function launchPoint(p) { return { x: p.x, y: p.y, z: p.z + 1.7 }; }
+function solveThrow(p, tgt, maxRIn) {
+  const o = launchPoint(p), dx = tgt.x - o.x, dy = tgt.y - o.y;
+  let d = Math.hypot(dx, dy); const maxR = maxRIn ?? (11 + .5 * G.st.str.lv);
+  let k = 1; if (d > maxR) k = maxR / d; d *= k;
+  const T = clamp(d * .075 + .35, .4, 1.4), zt = (k < 1 ? groundAt(G.W, o.x + dx * k, o.y + dy * k) : tgt.z) + .6;
+  return { vx: dx * k / T, vy: dy * k / T, vz: (zt - o.z + .5 * GP * T * T) / T, T };
+}
+function throwPos(p, s, t) { const o = launchPoint(p); return { x: o.x + s.vx * t, y: o.y + s.vy * t, z: o.z + s.vz * t - .5 * GP * t * t }; }
+function spawnProj(kind, p, sol) { const o = launchPoint(p); G.proj.push({ kind, x: o.x, y: o.y, z: o.z, vx: sol.vx, vy: sol.vy, vz: sol.vz, t: 0, owner: p, px: o.x, py: o.y }); }
+function updateProj(dt) {
+  const W = G.W;
+  for (let i = G.proj.length - 1; i >= 0; i--) {
+    const q = G.proj[i]; q.t += dt; q.px = q.x; q.py = q.y;
+    q.x += q.vx * dt; q.y += q.vy * dt; q.z += q.vz * dt; q.vz -= GP * dt;
+    if (q.kind === 'water') { q.vz -= 0; }
+    let done = false;
+    const inside = q.x >= 0 && q.y >= 0 && q.x < N && q.y < N, wasIn = q.px >= 0 && q.py >= 0 && q.px < N && q.py < N;
+    // попадания
+    if (!done) done = projHit(q);
+    // забор: летим наружу слишком низко
+    if (!done && wasIn && !inside && q.z < 2.3 && !(G.gateOpen && q.x >= N && Math.abs(q.y - W.gate.y - .5) < 2)) { q.x = q.px; q.y = q.py; q.vx = -q.vx * .2; q.vy = -q.vy * .2; q.vz = Math.abs(q.vz) * .1; }
+    const gh = groundAt(W, q.x, q.y);
+    if (!done && inside && W.blocked[Math.floor(q.y) * N + Math.floor(q.x)] && q.z < gh + 3) { q.x = q.px; q.y = q.py; done = projLand(q, true); }
+    else if (!done && q.z <= gh && q.vz < 0) done = projLand(q, false);
+    if (!done && q.t > 4) done = true;
+    if (done) G.proj.splice(i, 1);
+  }
+}
+function projLand(q, wall) {
+  const gz = groundAt(G.W, q.x, q.y), x = q.x, y = q.y;
+  if (q.kind === 'poop') { G.splats.push({ x, y, z: gz, t: 0 }); emit(x, y, gz, 6, { col: [P_.d0, P_.d1], spread: 1.4, v0: 1, v1: 3, life: .5 }); if (!wall) { G.combo = 0; floater(x, y, gz + 1, 'мимо', P_.d3); } }
+  else if (q.kind === 'banana') { G.pickups.push({ type: 'banana', x, y, z: gz, age: 0 }); emit(x, y, gz, 3, { col: P_.yel, spread: .8, v0: .5, v1: 2 }); }
+  else if (q.kind === 'stone') { G.pickups.push({ type: 'stone', x, y, z: gz, age: 0 }); emit(x, y, gz, 5, { kind: 'dust', spread: 1, v0: .5, v1: 1.5, g: 0, life: .4 }); sfx.hit(); noiseAt(x, y, 6, 'камень'); }
+  else if (q.kind === 'water') { emit(x, y, gz, 4, { col: P_.w3, spread: 1.2, v0: 1, v1: 3, life: .4 }); }
+  return true;
+}
+function noiseAt(x, y, r, why) { const k = G.keeper; if (k && dist(k, { x, y }) < r + 6 && k.state !== 'chase' && k.state !== 'stunned') alertKeeper(k, x, y, why); }
+function projHit(q) {
+  const z = q.z;
+  const hitR = q.kind === 'water' ? .9 : .7;
+  for (const v of G.vis) { if (v.a < .5 || !v.on) continue; if (Math.hypot(v.x - q.x, v.y - q.y) < hitR && z > -.2 && z < 3.6) { hitVisitor(q, v); return true; } }
+  for (const n of G.npcs) { const nz = n.sp === 'parrot' ? n.z : n.z; if (Math.hypot(n.x - q.x, n.y - q.y) < (n.sp === 'gorilla' ? 1 : .75) && z > nz - .3 && z < nz + (n.sp === 'gorilla' ? 4 : n.sp === 'tortoise' ? 1.5 : 3.2)) { hitNpc(q, n); return true; } }
+  const k = G.keeper; if (k && Math.hypot(k.x - q.x, k.y - q.y) < .8 && z > k.z - .3 && z < k.z + 4.4) { hitKeeper(q, k); return true; }
+  for (const o of G.W.objs) if (o.type === 'gong' && Math.hypot(o.x - q.x, o.y - q.y) < 1 && z > 0 && z < 4) { ringGong(o); G.cnt.gongs++; return projLand(q, true); }
+  return false;
+}
+function hitVisitor(q, v) {
+  const k = q.kind;
+  if (k === 'poop') {
+    G.cnt.hits++; G.combo = G.comboT > 0 ? G.combo + 1 : 1; G.comboT = 6; G.cnt.bestCombo = Math.max(G.cnt.bestCombo, G.combo);
+    let r = rnd(0, 100), fx = HIT_FX[0]; for (const f of HIT_FX) { r -= f[0]; if (r <= 0) { fx = f; break; } }
+    const mult = Math.min(3, G.combo), pts = (15 + fx[3]) * mult;
+    addScore(pts); v.splat = 30; v.emo = { t: 2, s: fx[1] }; floater(v.x, v.y, 3, `+${pts} ${fx[2]}${mult > 1 ? ' x' + mult : ''}`, P_.org);
+    if (fx[1] === 'REC') { G.cnt.viral++; toast('Кто-то снял это на видео — ты звезда интернета! +80', 'good'); }
+    if (fx[1] === 'ТТ..') { v.on = false; v.next = 40; }
+    addXp('cha'); sfx.ok(); emit(v.x, v.y, 2, 12, { col: [P_.d0, P_.d1, P_.d2], spread: 1.6, v0: 1, v1: 4, life: .8 });
+    for (const o of G.vis) if (o !== v && o.on && Math.hypot(o.x - v.x, o.y - v.y) < 3 && Math.random() < .45) { o.on = false; o.next = rnd(15, 30); o.emo = { t: 1.8, s: ';(' }; }
+    G.me.heat = Math.max(G.me.heat, 3);
+    noiseAt(q.owner.x, q.owner.y, 3, 'бросок');
+  } else if (k === 'banana') { addScore(5); v.emo = { t: 2, s: 'Ой!' }; v.cheer = 2; floater(v.x, v.y, 3, '+5', P_.yel); G.pickups.push({ type: 'banana', x: clamp(q.x, 1, N - 1), y: clamp(q.y, 1, N - 1), z: 0, age: 0 }); }
+  else if (k === 'stone') { addScore(12); v.emo = { t: 2, s: 'АЙ!' }; v.on = Math.random() < .5; floater(v.x, v.y, 3, '+12 попал камнем', P_.r3); G.me.heat = Math.max(G.me.heat, 5); G.cnt.hits++; noiseAt(v.x, v.y, 5, 'крик'); }
+  else if (k === 'water') { addScore(8); v.emo = { t: 2, s: 'БРР!' }; v.cheer = 1.5; v.splat = 0; floater(v.x, v.y, 3, '+8 мокрый', P_.w3); G.cnt.squirts++; }
+}
+function hitNpc(q, n) {
+  const k = q.kind;
+  if (n.sp === 'chimp') {
+    if (k === 'banana') { n.bond = Math.min(100, n.bond + 30); n.mood = 'happy'; n.moodT = 2.5; floater(n.x, n.y, n.z + 1, '+дружба', P_.pink); checkBond(n); }
+    else if (k === 'poop' || k === 'stone') { n.fleeT = 5; n.bond = Math.max(0, n.bond - 25); n.friend = n.bond >= 50 && n.friend; floater(n.x, n.y, n.z + 1, 'обиделся', P_.red); sfx.bad(); }
+    else if (k === 'water') { n.fleeT = 2; floater(n.x, n.y, n.z + 1, 'бр-р', P_.w3); }
+  } else if (n.sp === 'gorilla') {
+    if (k === 'banana') { eatPickup({ x: q.x, y: q.y }, { x: q.x, y: q.y, z: q.z }); n.state = 'eat'; n.eatT = 4; n.full = 22; G.cnt.decoy++; floater(n.x, n.y, n.z + 2, 'ням! (накормлен)', P_.yel); G.pacified = 0; }
+    else { n.rage = 8; n.state = 'chase'; floater(n.x, n.y, n.z + 3, 'РРР!', P_.red); sfx.hoot(); if (k === 'poop') { addScore(10); toast('Ты попал в гориллу — она в ярости!', 'bad'); } }
+  } else if (n.sp === 'parrot') {
+    if (k === 'stone' || k === 'poop') { n.fleeT = 8; n.perch = 0; G.pickups.push({ type: 'coin', x: n.x, y: n.y, z: groundAt(G.W, n.x, n.y) + n.z, fly: { sx: n.x, sy: n.y, t: 0, fl: .6 }, age: 0 }); floater(n.x, n.y, n.z, 'уронил монету!', P_.yel); addScore(15); n.say = 'Ай!'; n.sayT = 2; sfx.ok(); G.cnt.parrots++; }
+  } else if (n.sp === 'tortoise') {
+    if (k === 'banana') { floater(n.x, n.y, n.z + 1, 'ам!', P_.yel); }
+    else G.pickups.push({ type: k === 'stone' ? 'stone' : 'peanut', x: n.x, y: n.y, z: n.z, age: 0 });
+  }
+  projLand(q, true);
+}
+function hitKeeper(q, k) {
+  const kind = q.kind;
+  if (kind === 'banana') {
+    if (k.state !== 'stunned') { k.state = 'stunned'; k.stunT = 3.5; k.target = null; addScore(25); G.cnt.slips++; floater(k.x, k.y, k.z + 3, 'ПОСКОЛЬЗНУЛСЯ! +25', P_.yel); toast('Смотритель поскользнулся на банане! Ключ — рядом (E)', 'good'); sfx.ok(); emit(k.x, k.y, k.z + 2, 8, { kind: 'star', col: P_.yel, spread: 1.4, v0: 1, v1: 3, g: 8, life: .8 }); }
+  } else if (kind === 'poop' || kind === 'stone') {
+    addScore(10); floater(k.x, k.y, k.z + 3, '+10 в смотрителя!', P_.org); G.me.heat = 6; if (k.state !== 'stunned') { k.state = 'chase'; k.lost = 0; } sfx.hit();
+  } else if (kind === 'water') { floater(k.x, k.y, k.z + 3, 'бр-р', P_.w3); }
+  projLand(q, true);
+}
+function ringGong(o) { o.ring = 1.2; sfx.hoot(); noiseAt(o.x, o.y, 22, 'гонг'); const k = G.keeper; if (k && k.state !== 'chase' && k.state !== 'stunned') alertKeeper(k, o.x, o.y, 'гонг'); floater(o.x, o.y, 4, 'БОММ!', P_.yel); }
