@@ -148,7 +148,7 @@ function describe(t) {
       return { text: `Устроить шоу (зрителей: ${n}, −10 сил → 🎭)`, run: () => startAct('show', 2.6, () => {
         const m = G.vis.filter(v => v.on && v.a > .5 && v.side === 'n').length, fr = G.npcs.filter(c => c.sp === 'chimp' && c.friend && dist(c, me) < 7).length;
         const g = Math.round(m * 2.5 * (1 + .3 * (G.st.cha.lv - 1)) * (1 + .25 * fr));
-        addEnergy(-10); G.cnt.show++; addXp('cha'); addScore(g); G.cnt.bestShow = Math.max(G.cnt.bestShow, g); G.stageCool = 6;
+        addEnergy(-10); G.cnt.show++; addXp('cha'); addScore(g); G.cnt.bestShow = Math.max(G.cnt.bestShow, g); G.stageCool = 6; SND.crowd(me);
         floater(me.x, me.y, me.z + 3, '+' + g + (fr ? ` (друзья ×${1 + .25 * fr})` : ''), P_.yel); sfx.up();
         emit(me.x, me.y, me.z + 3, 40, { kind: 'star', col: [P_.red, P_.yel, P_.blue, P_.pur, P_.lime], spread: 2.4, v0: 2, v1: 7, g: 7, life: 1.8 });
         netCheer('n', 3, .3);
@@ -300,7 +300,7 @@ function miniKey(dir) {
   } else if (m.type === 'crack') {
     if (dir) return; const ok = Math.abs(m.pos - m.zone) < m.w / 2; G.inv.nut--; endMini();
     if (ok) { G.cnt.nuts++; addEnergy(20); addXp('int'); addScore(20); floater(G.me.x, G.me.y, G.me.z + 3, 'ХРЯСЬ! +20', P_.d4); sfx.ok(); emit(G.me.x, G.me.y, G.me.z + 1, 8, { col: P_.d4, spread: 1.2, v0: 1, v1: 3, life: .6 }); } else { floater(G.me.x, G.me.y, G.me.z + 3, 'мимо — орех улетел', P_.red); sfx.bad(); }
-  } else if (m.type === 'drums') { if (dir) return; m.taps++; sfx.tick(); beep(180 + (m.taps % 2) * 60, .06, 'triangle', .05); renderMini(); }
+  } else if (m.type === 'drums') { if (dir) return; m.taps++; SND.drum(null); renderMini(); }
 }
 
 // ───────── Ввод ─────────
@@ -367,7 +367,7 @@ function update(dt) {
   G.aim = computeAim();
   updatePlayer(me, dt);
   if (me.act) { me.act.t += dt; if (me.act.done !== null && me.act.t >= me.act.dur) { const d = me.act.done; me.act = null; d && d(); } }
-  updateMini(dt); if (host) { updateNpcs(dt); updateKeeper(G.keeper, dt); updateVisitors(dt); } else updateNetEntities(dt); fadeVisitors(dt); updateRemotes(dt); updatePickups(dt); updateProj(dt); updateParts(dt); netTick(dt); if (me.splat > 0) me.splat -= dt;
+  updateMini(dt); if (host) { updateNpcs(dt); updateKeeper(G.keeper, dt); updateVisitors(dt); } else updateNetEntities(dt); fadeVisitors(dt); updateRemotes(dt); updatePickups(dt); updateProj(dt); updateParts(dt); netTick(dt); ambientTick(dt); if (me.splat > 0) me.splat -= dt;
   for (let i = G.floaters.length - 1; i >= 0; i--) { G.floaters[i].t += dt; if (G.floaters[i].t > 1.6) G.floaters.splice(i, 1); }
   for (let i = G.splats.length - 1; i >= 0; i--) { G.splats[i].t += dt; if (G.splats[i].t > 28) G.splats.splice(i, 1); }
   G.gateAnim = clamp(G.gateAnim + (G.gateOpen ? dt * 1.5 : 0), 0, 1);
@@ -496,6 +496,7 @@ function updateHud() {
 
 // ───────── Запуск ─────────
 function startGame(seed, withTut, opts = {}) {
+  loadSounds();
   if (!opts.role) netClose();
   seed = (seed || '').trim() || randomSeed();
   resetState(); G.W = genWorld(seed); const W = G.W;

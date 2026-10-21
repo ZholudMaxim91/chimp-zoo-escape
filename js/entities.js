@@ -218,7 +218,7 @@ function aiGorilla(n, dt) {
   const target = nearestPlayer(n, p => Math.abs(p.z - n.z) < 2.2 && (n.rage > 0 || (bananasOf(p) > 0 && n.full <= 0 && n.pacified <= 0 && dist(n, p) < 7.5)));
   if (target) {
     const dme = dist(n, target);
-    if (n.state !== 'chase') { n.state = 'chase'; sfx.hoot(); }
+    if (n.state !== 'chase') { n.state = 'chase'; SND.gorilla(n); }
     stepEntity(n, (target.x - n.x) / (dme || 1), (target.y - n.y) / (dme || 1), dt, 3.35, { noWater: true, r: .4 });
     if (dme < 1.1 && n.pushCool <= 0 && !target.tween) {
       n.pushCool = 2.5; n.rage = 0; const lost = bananasOf(target); n.full = lost > 0 ? 18 : 6;
@@ -335,7 +335,7 @@ function collectPickup(type, at) {
   const x = at.x, y = at.y, z = (at.z || 0) + 1;
   switch (type) {
     case 'peanut': G.cnt.peanut++; addEnergy(8); addScore(3 + G.st.cha.lv); floater(x, y, z, '+' + (3 + G.st.cha.lv), P_.d4); sfx.eat(); break;
-    case 'coin': G.inv.coin++; addScore(10); floater(x, y, z, '+10', P_.yel); sfx.ok(); break;
+    case 'coin': G.inv.coin++; addScore(10); floater(x, y, z, '+10', P_.yel); SND.coin(null); break;
     case 'banana': G.inv.banana = Math.min(9, G.inv.banana + 1); floater(x, y, z, '+банан', P_.yel); sfx.eat(); break;
     case 'nut': G.inv.nut = Math.min(9, G.inv.nut + 1); floater(x, y, z, '+орех', P_.d3); sfx.eat(); break;
     case 'stone': G.inv.stone = Math.min(9, G.inv.stone + 1); floater(x, y, z, '+камень', P_.r3); sfx.tick(); break;
@@ -373,7 +373,7 @@ function updateProj(dt) {
 }
 function projLand(q, wall) {
   const gz = groundAt(G.W, q.x, q.y), x = q.x, y = q.y;
-  if (q.kind === 'poop') { G.splats.push({ x, y, z: gz, t: 0 }); emit(x, y, gz, 6, { col: [P_.d0, P_.d1], spread: 1.4, v0: 1, v1: 3, life: .5 }); if (!wall) { G.combo = 0; floater(x, y, gz + 1, 'мимо', P_.d3); } }
+  if (q.kind === 'poop') { SND.splat({ x, y }); G.splats.push({ x, y, z: gz, t: 0 }); emit(x, y, gz, 6, { col: [P_.d0, P_.d1], spread: 1.4, v0: 1, v1: 3, life: .5 }); if (!wall) { G.combo = 0; floater(x, y, gz + 1, 'мимо', P_.d3); } }
   else if (q.kind === 'banana') { addPickup({ type: 'banana', x, y, z: gz, age: 0 }); emit(x, y, gz, 3, { col: P_.yel, spread: .8, v0: .5, v1: 2 }); }
   else if (q.kind === 'stone') { addPickup({ type: 'stone', x, y, z: gz, age: 0 }); emit(x, y, gz, 5, { kind: 'dust', spread: 1, v0: .5, v1: 1.5, g: 0, life: .4 }); sfx.hit(); netNoise(x, y, 6, 'камень'); }
   else if (q.kind === 'water') { emit(x, y, gz, 4, { col: P_.w3, spread: 1.2, v0: 1, v1: 3, life: .4 }); }
@@ -391,7 +391,7 @@ function projHit(q) {
   return false;
 }
 function dispatchHit(q, tk, idx) {
-  const by = q.owner;
+  const by = q.owner; if (q.kind === 'poop') SND.splat(q); else if (q.kind === 'water') SND.splash(q); else SND.thud(q);
   if (isHost()) hostHit(by, q.kind, tk, idx, { x: q.x, y: q.y, z: q.z });
   else NET.send({ t: 'hit', k: q.kind, tk, i: idx, x: q.x, y: q.y, z: q.z });
   return true;
@@ -428,7 +428,7 @@ function hitNpc(by, kind, n, q) {
     else if (kind === 'water') n.fleeT = 2;
   } else if (n.sp === 'gorilla') {
     if (kind === 'banana') { n.state = 'eat'; n.eatT = 4; n.full = 22; reward(by, { cnt: { decoy: 1 }, fl: [n.x, n.y, n.z + 2, 'ням! (накормлен)', P_.yel] }); }
-    else { n.rage = 8; n.state = 'chase'; if (kind === 'poop') reward(by, { score: 10, toast: ['Ты попал в гориллу — она в ярости!', 'bad'], fl: [n.x, n.y, n.z + 3, 'РРР!', P_.red] }); }
+    else { n.rage = 8; n.state = 'chase'; SND.gorilla(n); if (kind === 'poop') reward(by, { score: 10, toast: ['Ты попал в гориллу — она в ярости!', 'bad'], fl: [n.x, n.y, n.z + 3, 'РРР!', P_.red] }); }
   } else if (n.sp === 'parrot') {
     if (kind === 'stone' || kind === 'poop') { n.fleeT = 8; n.perch = 0; addPickup({ type: 'coin', x: n.x, y: n.y, z: groundAt(G.W, n.x, n.y), fly: { sx: n.x, sy: n.y, t: 0, fl: .6 }, age: 0 }); n.say = 'Ай!'; n.sayT = 2; reward(by, { score: 15, cnt: { parrots: 1 }, sfx: 'ok', fl: [n.x, n.y, n.z, 'уронил монету!', P_.yel] }); }
   } else if (n.sp === 'tortoise') {
@@ -446,7 +446,7 @@ function hitKeeper(by, kind, q) {
   }
   projLand({ ...q, kind }, true);
 }
-function ringGong(o) { o.ring = 1.2; sfx.hoot(); netNoise(o.x, o.y, 22, 'гонг'); floater(o.x, o.y, 4, 'БОММ!', P_.yel); }
+function ringGong(o) { o.ring = 1.2; SND.gong(o); netNoise(o.x, o.y, 22, 'гонг'); floater(o.x, o.y, 4, 'БОММ!', P_.yel); }
 
 // ───────── Дуэли говном (считает хост) ─────────
 const DUEL_GOAL = 5, DUEL_MAX = 90;
