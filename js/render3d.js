@@ -367,7 +367,7 @@ function buildObjects(W) {
     const x = d.x, y = d.y;
     if (d.k === 'tree') treeInto(mb, x, 0, y, 1.15 + (d.s % 7) * .06, d.s + 100);
     else if (d.k === 'bush') for (let i = 0; i < 3; i++) mb.add(GEO.sph, M(x + (i - 1) * .22, .18, y + (i % 2) * .15, .25, .2, .25), i % 2 ? '#3d8f3a' : '#4ea442', .18, d.s + i, .3);
-    else if (d.k === 'lamp') { mb.add(GEO.cyl, M(x, .9, y, .04, 1.8, .04), '#33363e', .05); const b = part(GEO.sph, '#fff2b0', [x, 1.85, y], [.1, .12, .1], null, { emissive: '#ffd27a', emissiveIntensity: 1 }); b.castShadow = false; scene.add(b); }
+    else if (d.k === 'lamp') { mb.add(GEO.cyl, M(x, .9, y, .04, 1.8, .04), '#33363e', .05); const b = new T3.Mesh(GEO.sph, new T3.MeshStandardMaterial({ color: '#fff2b0', emissive: '#ffd27a', emissiveIntensity: 1, flatShading: true })); b.position.set(x, 1.85, y); b.scale.set(.1, .12, .1); scene.add(b); LAMPS.push(b); }
     else if (d.k === 'bench') { mb.add(GEO.box, M(x, .32, y, 1.2, .06, .35), '#a07448', .1); mb.add(GEO.box, M(x, .55, y - .16, 1.2, .3, .05), '#8a6238', .1); for (const s of [-.5, .5]) mb.add(GEO.box, M(x + s, .16, y, .06, .32, .3), '#2e2e34', 0); }
     else if (d.k === 'kiosk') { mb.add(GEO.box, M(x, .6, y, 1.6, 1.2, 1.1), '#f0ead6', .05); for (let i = 0; i < 7; i++) mb.add(GEO.box, M(x - .7 + i * .23, 1.32, y + .62, .23, .08, .5, .5, 0, 0), i % 2 ? '#f6f2e2' : '#d24a34', 0); mb.add(GEO.box, M(x, .75, y + .56, 1.0, .5, .02), '#68b2f0', 0); }
     else if (d.k === 'sign') { for (const s of [-.45, .45]) mb.add(GEO.cyl, M(x + s, .5, y, .04, 1.0, .04), '#6a4628', .05); const sg = new T3.Mesh(GEO.plane, new T3.MeshStandardMaterial({ map: canvasTex(64, 20, c => { c.fillStyle = '#e0b472'; c.fillRect(0, 0, 64, 20); c.fillStyle = '#5a3a10'; c.font = 'bold 9px monospace'; c.textAlign = 'center'; c.fillText('ШИМПАНЗЕ', 32, 13); }), side: T3.DoubleSide })); sg.scale.set(1.1, .36, 1); sg.position.set(x, .95, y); sg.rotation.y = Math.PI / 4; scene.add(sg); }
@@ -379,7 +379,7 @@ function buildObjects(W) {
 let SCENE_W = null, WATER = null, KCONE = null;
 function buildOuter(W) {   // имя оставлено для совместимости
   for (let i = scene.children.length - 1; i >= 0; i--) { const c = scene.children[i]; if (c !== hemi && c !== sun && c !== sun.target) scene.remove(c); }
-  DYNOBJ.length = 0; RIGS.clear(); POOLS.clear();
+  DYNOBJ.length = 0; RIGS.clear(); POOLS.clear(); LAMPS.length = 0;
   scene.add(buildTerrain(W)); WATER = buildWater(W); scene.add(WATER); scene.add(buildFoliage(W)); buildObjects(W);
   KCONE = new T3.Mesh(new T3.CircleGeometry(1, 14, -.85, 1.7), new T3.MeshBasicMaterial({ color: '#ffe680', transparent: true, opacity: .14, depthWrite: false })); KCONE.rotation.x = -Math.PI / 2; KCONE.renderOrder = 3; scene.add(KCONE);
   SCENE_W = W;
@@ -426,6 +426,7 @@ function syncCreatures() {
     const air = p.me ? (!p.grounded && p.z > groundAt(G.W, p.x, p.y) + .3) : false;
     poseApe(r, { t: tq(T, r.seed), move: p.moving ? (p.sprint ? 2 : 1) : 0, crouch: p.crouch, air, act: a === 'show' || a === 'climb' || a === 'swing' ? 'up' : a, actP: p.act && p.act.dur ? p.act.t / p.act.dur : 0 });
     placeRig(r, p, y, ang);
+    showDirt(r, p.dirtP || 0, p.dirtB || 0); r.root.visible = !(p.invuln > 0 && Math.floor(G.t * 10) % 2);
   }
   for (const n of G.npcs) {
     const r = rigFor(n, n.sp), mv = moveAngle(r, n), t = tq(T, r.seed);
@@ -438,10 +439,10 @@ function syncCreatures() {
   const k = G.keeper;
   if (k) {
     const r = rigFor(k, 'keeper'); moveAngle(r, k);
-    poseHuman(r, { t: tq(T, r.seed), move: k.moving ? (k.state === 'chase' ? 2 : 1) : 0, act: k.state === 'stunned' ? 'stun' : (k.state === 'chase' || k.state === 'suspicious') ? 'alert' : null });
+    poseHuman(r, { t: tq(T, r.seed), move: k.moving ? (k.state === 'chase' ? 2 : 1) : 0, act: k.state === 'stunned' ? 'stun' : k.state === 'sleep' ? 'sleep' : (k.state === 'chase' || k.state === 'suspicious') ? 'alert' : null });
     placeRig(r, k, visY(k), Math.atan2(k.dx, k.dy));
     const km = r.j.torso.children.find(c => c.geometry === GEO.box && c.material.color.getHexString() === 'ffd23a'); if (km) km.visible = k.hasKey;
-    if (KCONE) { const range = k.visRange || 8.5; KCONE.visible = k.state !== 'stunned'; KCONE.scale.set(range, range, 1); KCONE.position.set(k.x, groundSmooth(k.x, k.y) * LV + .04, k.y); KCONE.rotation.z = -Math.atan2(k.dy, k.dx); KCONE.material.color.set(k.state === 'chase' ? '#ff4030' : k.state === 'suspicious' ? '#ffb020' : '#ffe680'); KCONE.material.opacity = k.state === 'chase' ? .24 : .13; }
+    if (KCONE) { const range = k.visRange || 8.5; KCONE.visible = k.state !== 'stunned' && k.state !== 'sleep' && k.state !== 'tohut'; KCONE.scale.set(range, range, 1); KCONE.position.set(k.x, groundSmooth(k.x, k.y) * LV + .04, k.y); KCONE.rotation.z = -Math.atan2(k.dy, k.dx); KCONE.material.color.set(k.state === 'chase' ? '#ff4030' : k.state === 'suspicious' ? '#ffb020' : '#ffe680'); KCONE.material.opacity = k.state === 'chase' ? .24 : .13; }
   }
   for (const v of G.vis) {
     const r = rigFor(v, 'visitor'); r.root.visible = v.a > .5;
@@ -451,6 +452,15 @@ function syncCreatures() {
     placeRig(r, v, 0, Math.atan2(N / 2 - v.x, N / 2 - v.y));
   }
   for (const [e, r] of RIGS) if (!r.alive) { scene.remove(r.root); RIGS.delete(e); }
+}
+// пятна грязи на шерсти (коричневые — говно, белые — попугаи)
+function showDirt(r, dp, db) {
+  if (!r.dirt) {
+    r.dirt = [];
+    const spots = [[.12, .3, .16], [-.1, .4, .14], [.05, .2, -.18], [-.14, .25, -.12], [.16, .45, 0], [0, .5, .17], [-.17, .35, .05]];
+    spots.forEach(([x, y, z], i) => { for (const col of ['#4a2e12', '#f0f0e6']) { const m = part(GEO.sph, col, [x * 1.05, y, z * 1.1], [.06 + (i % 3) * .015, .05, .045]); m.castShadow = false; m.visible = false; r.j.torso.add(m); r.dirt.push({ m, bird: col !== '#4a2e12', i }); } });
+  }
+  for (const d of r.dirt) d.m.visible = d.i < (d.bird ? db : dp);
 }
 // пулы мелочей: предметы, снаряды, кляксы
 const POOLS = new Map();
@@ -479,12 +489,28 @@ function syncItems() {
   hideFrom('splat', si);
 }
 
+// ── свет по времени суток ──
+const LAMPS = [];
+const _c1 = new T3.Color(), _c2 = new T3.Color();
+function applyDaylight() {
+  const p = typeof dayPhase === 'function' ? dayPhase() : .5;
+  const sunUp = Math.sin((p - .25) * Math.PI * 2);              // >0 днём
+  const day = clamp(sunUp * 1.6 + .25, 0, 1), dusk = clamp(1 - Math.abs(sunUp) * 4, 0, 1) * (p > .15 && p < .9 ? 1 : 0);
+  sun.intensity = .12 + .88 * day; sun.color.copy(_c1.set('#ffe2b0').lerp(_c2.set('#fff4dc'), day)).lerp(_c2.set('#ff9a5a'), dusk * .7);
+  hemi.intensity = .32 + .5 * day; hemi.color.copy(_c1.set('#5a6a9a').lerp(_c2.set('#d8ecff'), day));
+  scene.background.copy(_c1.set('#14203a').lerp(_c2.set('#2f5a30'), day));
+  const ang = (p - .25) * Math.PI * 2;                                     // солнце идёт по дуге
+  sun.position.set(sun.target.position.x - Math.cos(ang) * 16, sun.target.position.y + 6 + Math.max(.2, sunUp) * 18, sun.target.position.z - 5);
+  for (const l of LAMPS) l.material.emissiveIntensity = .4 + (1 - day) * 2.2;
+}
+
 // ───────── Кадр ─────────
 function renderWorld(dt) {
   if (!G.W) return;
   if (SCENE_W !== G.W) buildOuter(G.W);
   updateCam(dt, G.camSnap); G.camSnap = false;
   if (WATER) WATER.material.uniforms.t.value = G.t;
+  applyDaylight();
   for (const d of DYNOBJ) d.update(d.o, G.t);
   syncCreatures(); syncItems();
   renderer.setRenderTarget(rt); renderer.render(scene, camera);
@@ -509,7 +535,7 @@ function drawOverlay() {
     if (n.sp === 'gorilla' && n.state === 'chase') pxText(g, '!', s.x, s.y, P_.red, 10);
     if (n.sp === 'parrot' && n.say && n.sayT > 0) pxText(g, n.say, s.x, s.y, P_.white, 7);
   }
-  const k = G.keeper; if (k) { const s = project(k.x, visY(k) + 4.4, k.y); if (k.state === 'chase') pxText(g, '!', s.x, s.y, P_.red, 11); else if (k.state === 'suspicious') pxText(g, '?', s.x, s.y, P_.yel, 11); else if (k.state === 'stunned') pxText(g, '*', s.x, s.y, P_.yel, 11); }
+  const k = G.keeper; if (k) { const s = project(k.x, visY(k) + 4.4, k.y); if (k.state === 'chase') pxText(g, '!', s.x, s.y, P_.red, 11); else if (k.state === 'suspicious') pxText(g, '?', s.x, s.y, P_.yel, 11); else if (k.state === 'stunned') pxText(g, '*', s.x, s.y, P_.yel, 11); else if (k.state === 'sleep') pxText(g, 'Zz', s.x + Math.sin(T * 2) * 3, s.y - (T * 6 % 6), P_.white, 9); }
   for (const v of G.vis) if (v.emo && v.a > .5) { const s = project(v.x, 4.2, v.y); g.globalAlpha = Math.min(1, v.emo.t); pxText(g, v.emo.s, s.x, s.y - (2 - v.emo.t) * 5, P_.white, 8); g.globalAlpha = 1; }
   for (const o of G.W.objs) if (o.type === 'dig' && !o.dug && G.me && Math.hypot(G.me.x - o.x, G.me.y - o.y) < 4.5 && Math.floor(T * 2.5) % 2) { const s = project(o.x, groundSmooth(o.x, o.y) + .3, o.y); rect(g, s.x, s.y - 3, 1, 1, P_.yel); rect(g, s.x - 1, s.y - 2, 3, 1, P_.white); rect(g, s.x, s.y - 1, 1, 1, P_.yel); }
   if (G.gateOpen && Math.floor(T * 3) % 2) { const s = project(N + 1.5, 4, G.W.gate.y + .5); pxText(g, '> БЕГИ! >', s.x, s.y, P_.yel, 8); }

@@ -10,12 +10,12 @@ Object.defineProperty(G, 'hasKey', { get() { return G.keyHolder !== null && G.ke
 const inDuel = () => !!G.duel && (G.duel.a === NET.id || G.duel.b === NET.id);
 function resetState() {
   Object.assign(G, {
-    t: 0, score: 0, energy: 80, keyHolder: null, pid: 0, duel: null, invite: null, gateOpen: false, gateAnim: 0, combo: 0, comboT: 0, mini: null, tut: null, tutOk: false, tutDist: 0, dustT: 0, peanutT: 5,
+    t: 0, day: 1, dayT: 10, boostT: 0, washT: 0, score: 0, energy: 80, keyHolder: null, pid: 0, duel: null, invite: null, gateOpen: false, gateAnim: 0, combo: 0, comboT: 0, mini: null, tut: null, tutOk: false, tutDist: 0, dustT: 0, peanutT: 5,
     vineCool: 0, shotCool: 0, stickDur: 3, startedAt: performance.now(), keyHint: 0,
     st: { str: { lv: 1, xp: 0 }, agi: { lv: 1, xp: 0 }, int: { lv: 1, xp: 0 }, cha: { lv: 1, xp: 0 } },
     inv: { banana: 0, nut: 0, stone: 2, stick: 0, poop: 3, coin: 0, water: 0 },
     cnt: { banana: 0, peanut: 0, nuts: 0, fish: 0, dig: 0, treasure: 0, puzzle: 0, show: 0, drums: 0, hits: 0, viral: 0, bestCombo: 0, bestShow: 0, stolen: 0, friends: 0, decoy: 0, slips: 0, gongs: 0,
-      squirts: 0, parrots: 0, summit: 0, vines: 0, jumps: 0, bounces: 0, ladders: 0, sprintT: 0, pacify: 0, locker: 0, throws: 0, shakes: 0, duels: 0 },
+      squirts: 0, parrots: 0, summit: 0, vines: 0, jumps: 0, bounces: 0, ladders: 0, sprintT: 0, pacify: 0, locker: 0, throws: 0, shakes: 0, duels: 0, pHits: 0, washes: 0 },
     pickups: [], proj: [], parts: [], floaters: [], splats: [],
   });
   QUESTS.forEach(q => q.done = false); ACHS.forEach(a => a.on = false);
@@ -68,7 +68,18 @@ function addXp(k) {
   const need = 2 + s.lv * 2;
   if (s.xp >= need) { s.xp -= need; s.lv++; toast(`${STAT_META[k][0]} ${STAT_META[k][1]} → уровень ${s.lv}!`, 'good'); sfx.up(); floater(G.me.x, G.me.y, G.me.z + 3, 'УРОВЕНЬ!', STAT_META[k][2]); emit(G.me.x, G.me.y, G.me.z + 2, 18, { kind: 'star', col: [STAT_META[k][2], '#ffe680', '#fff'], spread: 2, v0: 2, v1: 6, g: 8, life: 1.2 }); }
 }
-function startAct(type, dur, done) { const me = G.me; me.act = { type, t: 0, dur, done }; me.moving = false; }
+// интеллект ускоряет сбор и сложные действия
+const SMART_ACTS = ['eat', 'dig', 'fish'];
+function startAct(type, dur, done) { const me = G.me; if (SMART_ACTS.includes(type)) dur *= clamp(1 - .1 * (G.st.int.lv - 1), .55, 1); me.act = { type, t: 0, dur, done }; me.moving = false; }
+// ── сутки: 1 день = 2 минуты, на побег 20 дней ──
+const DAY_LEN = 120, DAYS = 20;
+const dayPhase = () => (G.dayT || 0) / DAY_LEN;                  // 0 — полночь, .5 — полдень
+const isNight = () => { const p = dayPhase(); return p < .21 || p > .85; };
+const zooOpen = () => { const p = dayPhase(); return p > .3 && p < .8; };
+const clockStr = () => { const m = Math.floor(dayPhase() * 24 * 60); return String(Math.floor(m / 60)).padStart(2, '0') + ':' + String(m % 60).padStart(2, '0'); };
+// ── грязь: от говна (3/5/6 попаданий) и от попугаев (3/5/7) — замедление 5/10/15%, отмывается в пруду ──
+function dirtLevel(v, t) { return v >= t[2] ? 3 : v >= t[1] ? 2 : v >= t[0] ? 1 : 0; }
+function dirtSlow() { const me = G.me; if (!me) return 0; return [0, .05, .10, .15][Math.max(dirtLevel(me.dirtP || 0, [3, 5, 6]), dirtLevel(me.dirtB || 0, [3, 5, 7]))]; }
 function exertBlock(cost) { return G.energy >= cost ? null : 'Нет сил — съешь банан (R)!'; }
 function tileKind(x, y) { const tx = Math.floor(x), ty = Math.floor(y); return tx < 0 || ty < 0 || tx >= N || ty >= N ? K.GRASS : G.W.kind[ty * N + tx]; }
 function useStickDur() { G.stickDur--; if (G.stickDur <= 0) { G.inv.stick--; G.stickDur = 3; toast('Палка сломалась!', 'bad'); } }
@@ -371,11 +382,21 @@ function update(dt) {
   for (let i = G.floaters.length - 1; i >= 0; i--) { G.floaters[i].t += dt; if (G.floaters[i].t > 1.6) G.floaters.splice(i, 1); }
   for (let i = G.splats.length - 1; i >= 0; i--) { G.splats[i].t += dt; if (G.splats[i].t > 28) G.splats.splice(i, 1); }
   G.gateAnim = clamp(G.gateAnim + (G.gateOpen ? dt * 1.5 : 0), 0, 1);
+  if (G.boostT > 0) G.boostT -= dt;
+  if (host) { const was = isNight(); G.dayT += dt; if (G.dayT >= DAY_LEN) { G.dayT -= DAY_LEN; G.day++; if (G.day <= DAYS) { toast('📅 День ' + G.day + ' из ' + DAYS + (DAYS - G.day < 3 ? ' — времени почти не осталось!' : ''), DAYS - G.day < 3 ? 'bad' : ''); } } if (!was && isNight()) toast('🌙 Ночь: посетители ушли, смотритель идёт спать в сторожку'); if (was && !isNight()) toast('🌅 Утро: зоопарк просыпается'); }
+  if (G.day > DAYS) { timeUp(); return; }
+  if (((me.dirtP || 0) + (me.dirtB || 0)) > 0 && tileKind(me.x, me.y) === K.WATER && me.grounded) { G.washT += dt; if (G.washT > 1.2) { me.dirtP = 0; me.dirtB = 0; G.washT = 0; G.cnt.washes++; toast('🛁 Отмылся! Скорость снова в норме', 'good'); SND.splash(me); emit(me.x, me.y, me.z + 1, 14, { col: P_.w3, spread: 1.5, v0: 1, v1: 4, life: .8 }); } } else G.washT = 0;
   if (me.z >= 4.9 && !G.cnt.summit) { G.cnt.summit = 1; toast('Ты в домике на вершине! Здесь сундук (E)', 'good'); sfx.up(); }
   for (const q of QUESTS) if (!q.done && q.get() >= q.goal) { q.done = true; addScore(q.reward); toast(`✅ ${q.text}  +${q.reward}`, 'good'); sfx.ok(); }
   for (const a of ACHS) if (!a.on && a.test()) { a.on = true; addScore(10); toast(`🏆 Достижение: ${a.name}  +10`); sfx.up(); }
   tutUpdate();
   if (G.gateOpen && me.x > N + 1.2) win();
+}
+function timeUp() {
+  if (G.state !== 'play') return; G.state = 'won'; Profile.record(G.score, false);
+  $('win').querySelector('h1').textContent = '⏰ ВРЕМЯ ВЫШЛО';
+  $('winText').innerHTML = `<p>Прошло ${DAYS} дней — тебя перевели в другой зоопарк. Побег не удался.</p><p>⭐ Очки: <b>${G.score}</b> · 💪 ${G.st.str.lv} · 🤸 ${G.st.agi.lv} · 🧠 ${G.st.int.lv} · 🎭 ${G.st.cha.lv}</p>`;
+  $('win').style.display = 'flex'; $('winStay').style.display = 'none'; sfx.bad();
 }
 function win() {
   G.state = 'won'; Profile.record(G.score, true); const secs = Math.round((performance.now() - G.startedAt) / 1000); addScore(100);
@@ -409,14 +430,19 @@ function applyHurt(h) {
   if (h.caught) {
     addScore(-20); me.stun = 1.2; me.act = null; endMini(); me.tween = null;
     if (h.hadKey) toast('Смотритель отобрал ключ!', 'bad');
-    toast('Тебя поймали! −20 очков, назад на старт', 'bad'); sfx.bad();
-    me.x = G.W.spawn.x; me.y = G.W.spawn.y; me.z = groundAt(G.W, me.x, me.y); me.rz = me.z; me.vz = 0; me.heat = 0; G.camSnap = true; return;
+    toast('Тебя поймали! −20 очков. Смотритель отнёс тебя в другой угол вольера', 'bad'); sfx.bad();
+    const sp = h.spawn || G.W.spawn; me.invuln = 6;
+    me.x = sp.x; me.y = sp.y; me.z = groundAt(G.W, me.x, me.y); me.rz = me.z; me.vz = 0; me.heat = 0; G.camSnap = true; return;
   }
   if (h.stun) { me.stun = Math.max(me.stun, h.stun); me.act = null; if (G.mini) endMini(); }
   if (h.push && walkableAt(G.W, h.push.x, h.push.y, me.z)) { me.x = h.push.x; me.y = h.push.y; }
   if (h.lose) G.inv[h.lose] = 0;
   if (h.score) addScore(h.score);
   if (h.splat) me.splat = h.splat;
+  if (h.dirt || h.bird) {
+    const before = dirtSlow(); me.dirtP = (me.dirtP || 0) + (h.dirt || 0); me.dirtB = (me.dirtB || 0) + (h.bird || 0); const after = dirtSlow();
+    if (after > before) toast(`Ты весь в ${h.bird ? 'птичьем помёте' : 'говне'}: скорость −${Math.round(after * 100)}%. Отмойся в пруду!`, 'bad');
+  }
   if (h.fl) floater(h.fl[0], h.fl[1], h.fl[2], h.fl[3], h.fl[4]);
   if (h.toast) toast(h.toast[0], h.toast[1]);
   if (h.sfx && sfx[h.sfx]) sfx[h.sfx]();
@@ -478,7 +504,8 @@ function updateHud() {
   for (const k of Object.keys(G.st)) { const s = G.st[k], need = 2 + s.lv * 2; statEls[k].lv.textContent = s.lv >= MAX_LV ? 'МАКС' : `ур. ${s.lv}`; statEls[k].bar.style.width = (s.lv >= MAX_LV ? 100 : s.xp / need * 100) + '%'; }
   QUESTS.forEach((q, i) => { qEls[i].classList.toggle('done', q.done); qEls[i].lastChild.textContent = q.done ? '✔' : `${Math.min(q.get(), q.goal)}/${q.goal}`; });
   ACHS.forEach((a, i) => aEls[i].classList.toggle('on', a.on));
-  const k = G.keeper, ks = { patrol: ['👁 патруль', ''], suspicious: ['👁 ищет!', 'warn'], chase: ['👁 ПОГОНЯ!', 'alarm'], stunned: ['👁 оглушён', 'ok'] }[k.state];
+  const k = G.keeper, ks = { patrol: ['👁 патруль', ''], suspicious: ['👁 ищет!', 'warn'], chase: ['👁 ПОГОНЯ!', 'alarm'], stunned: ['👁 оглушён', 'ok'], tohut: ['👁 идёт спать', 'ok'], sleep: ['💤 спит', 'ok'] }[k.state] || ['👁 ?', ''];
+  const ds = dirtSlow(); $('dayInfo').innerHTML = '📅 ' + Math.min(G.day, DAYS) + '/' + DAYS + ' · ' + (isNight() ? '🌙' : '☀') + ' ' + clockStr() + (ds ? ' · <span class="ks alarm">💩 −' + Math.round(ds * 100) + '%</span>' : '') + (G.boostT > 0 ? ' · 🥥 буст' : '');
   $('escapeInfo').innerHTML = `<span class="ks ${ks[1]}">${ks[0]}</span> · 🗝 ${G.hasKey ? '✔' : '✘'} · уровни ${lvSum()}/${NEED_SUM}${G.combo > 1 ? ' · 🔥×' + Math.min(3, G.combo) : ''}`;
   TOOLS.forEach((t, i) => { slotEls[i].classList.toggle('sel', i === G.tool); slotEls[i].classList.toggle('off', !t.ok()); slotEls[i].querySelector('em').textContent = t.count(); });
   $('seedInfo').textContent = '🌱 ' + G.W.seed; drawMinimap();

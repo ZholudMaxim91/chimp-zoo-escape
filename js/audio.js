@@ -90,3 +90,4 @@ sfx.throw = () => SND.whoosh(null);
 sfx.eat = () => SND.crunch(null);
 sfx.splash = () => SND.splash(null);
 sfx.hit = () => SND.thud(null);
+sfx.splat = () => SND.splat(null);

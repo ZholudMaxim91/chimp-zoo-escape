@@ -87,6 +87,10 @@ function genWorld(seedStr) {
   W.spawn = (() => { const p = nearFree(N * .35, N * .6, 7); return p ? { x: p[0] + .5, y: p[1] + .5 } : { x: 12.5, y: 25.5 }; })();
   for (let j = -1; j <= 1; j++) for (let i = -1; i <= 1; i++) { const x = Math.floor(W.spawn.x) + i, y = Math.floor(W.spawn.y) + j; if (inb(x, y) && h[I(x, y)] === 0) { blocked[I(x, y)] = 0; } }
 
+  // ── точки возрождения после поимки (разбросаны по карте)
+  W.respawns = [W.spawn];
+  for (let i = 0; i < 60 && W.respawns.length < 7; i++) { const p = findFree((x, y) => flatFree(x, y) && neighborsFlat(x, y) && W.respawns.every(q => Math.hypot(q.x - x - .5, q.y - y - .5) > 9)); if (p) W.respawns.push({ x: p[0] + .5, y: p[1] + .5 }); }
+
   // ── растительность
   const onHill = (x, y) => h[I(x, y)] >= 1 && h[I(x, y)] <= 2;
   // лес на юго-западе

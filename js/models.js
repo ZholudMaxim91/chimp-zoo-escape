@@ -247,6 +247,7 @@ function poseHuman(r, st) {
   else if (a === 'cheer') { const w = Math.sin(t * 10 + (st.seed || 0)); j.shL.rotation.x = -2.8 + w * .2; j.shR.rotation.x = -2.8 - w * .2; j.shL.rotation.z = -.3; j.shR.rotation.z = .3; j.mouth.scale.y = j.mouth.userData.sy * 4; j.hips.position.y = .62 + Math.abs(w) * .06; }
   else if (a === 'phone') { j.shR.rotation.x = -1.9; j.elR.rotation.x = -1.3; if (j.phone) j.phone.visible = true; }
   else if (a === 'scared') { j.shL.rotation.x = j.shR.rotation.x = -2.2; j.elL.rotation.x = j.elR.rotation.x = -1.6; j.torso.rotation.x = -.15; j.mouth.scale.y = j.mouth.userData.sy * 5; }
+  else if (a === 'sleep') { j.hips.position.y = .32; j.hipL.rotation.x = j.hipR.rotation.x = -1.5; j.knL.rotation.x = j.knR.rotation.x = 1.5; j.torso.rotation.x = .45; j.neck.rotation.x = .7; j.shL.rotation.x = j.shR.rotation.x = -.6; j.elL.rotation.x = j.elR.rotation.x = -.8; j.head.rotation.z = Math.sin(t * 1.5) * .06; }
   else if (a === 'stun') { j.torso.rotation.x = .5; j.torso.rotation.z = Math.sin(t * 18) * .25; j.head.rotation.y = t * 6; j.hips.position.y = .45; j.knL.rotation.x = j.knR.rotation.x = 1.2; j.hipL.rotation.x = j.hipR.rotation.x = -1.2; }
 }
 function poseParrot(r, st) {
