@@ -217,6 +217,8 @@ function poseApe(r, st) {
     const w = Math.sin(t * 11);
     j.torso.rotation.x = .1; j.hips.rotation.y = w * .4; j.shL.rotation.x = -2.4 + w * .6; j.shR.rotation.x = -2.4 - w * .6; j.shL.rotation.z = -.5; j.shR.rotation.z = .5;
     j.mouth.scale.y = j.mouth.userData.sy * 2.5; hipsY = .4 + Math.abs(w) * .08;
+  } else if (a === 'pee') {
+    j.torso.rotation.x = -.15; j.hips.rotation.x = -.2; j.shL.rotation.x = j.shR.rotation.x = -.3; j.shL.rotation.z = -.3; j.shR.rotation.z = .3; j.hipL.rotation.x = j.hipR.rotation.x = -.1; hipsY = .46; j.neck.rotation.x = -.1;
   } else if (a === 'hoot') {
     j.torso.rotation.x = -.15; j.neck.rotation.x = -.55; j.shL.rotation.x = -2.6; j.shR.rotation.x = -2.6; j.shL.rotation.z = -.6; j.shR.rotation.z = .6;
     j.mouth.scale.y = j.mouth.userData.sy * 5.5; hipsY = .44;

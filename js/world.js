@@ -100,6 +100,9 @@ function genWorld(seedStr) {
   // отдельные деревья и бананы по карте
   for (let i = 0; i < 20; i++) { const p = findFree((x, y) => (flatFree(x, y) || (onHill(x, y))) && Math.hypot(x - W.spawn.x, y - W.spawn.y) > 4); if (p) add(R() < .45 ? 'banana_tree' : 'tree', p[0] + .5, p[1] + .5, { bananas: 3, regrow: 0, seed: ri(0, 999), water: 0 }); }
   for (let i = 0; i < 22; i++) { const p = findFree((x, y) => flatFree(x, y)); if (p) add('bush', p[0] + .5, p[1] + .5, { seed: ri(0, 99), sticks: R() < .4 ? 2 : 0, berries: R() < .5 ? 2 : 0, regrow: 0 }, false); }
+  // ── кокосовые пальмы и питьевые фонтанчики
+  for (let i = 0; i < 5; i++) { const p = findFree((x, y) => (kind[I(x, y)] === K.SAND || kind[I(x, y)] === K.GRASS) && flatFree(x, y) && Math.hypot(x - W.spawn.x, y - W.spawn.y) > 3); if (p) add('coco_palm', p[0] + .5, p[1] + .5, { cocos: 2, regrow: 0, seed: ri(0, 999) }); }
+  for (const [cx, cy] of [[N * .45, N * .5], [st.x + 2, st.y + 6]]) { const p = nearFree(cx, cy, 5); if (p) add('fountain', p[0] + .5, p[1] + .5, {}); }
   // ── объекты и интерактивы
   const near = (cx, cy, rad, hh = 0) => nearFree(cx, cy, rad, hh) || findFree((x, y) => flatFree(x, y, hh) && neighborsFlat(x, y));
   for (let i = 0; i < 3; i++) { const p = near(pd.x - 2 + i * 3, pd.y + 6, 4); if (p) add('termite', p[0] + .5, p[1] + .5, { hp: 3, regrow: 0 }); }

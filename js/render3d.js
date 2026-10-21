@@ -283,6 +283,14 @@ function buildObjects(W) {
         for (let i = 0; i < 7; i++) br.add(part(GEO.sph, '#d23040', [x + (R() - .5) * .5, z + .2 + R() * .2, y + (R() - .5) * .5], [.035, .035, .035]));
         st.add(part(GEO.cyl, '#8a6238', [x + .25, z + .06, y + .1], [.025, .5, .025], [0, 0, 1.3])); st.add(part(GEO.cyl, '#7a5230', [x - .1, z + .06, y + .28], [.022, .45, .022], [1.2, 0, .3]));
         ex.add(br, st); addDyn(ex, o, o => { br.visible = o.berries > 0; st.visible = o.sticks > 0; }); break; }
+      case 'coco_palm': {
+        const top = palmInto(mb, x, z, y, s + 7), cg = new T3.Group();
+        for (let b = 0; b < 2; b++) cg.add(part(GEO.sph2, '#5a3a1e', [top.x + (b ? .1 : -.08), top.z - .1, top.y + (b ? -.06 : .08)], [.1, .11, .1]));
+        addDyn(cg, o, o => cg.children.forEach((c, i) => c.visible = i < o.cocos)); break; }
+      case 'fountain': {
+        mb.add(GEO.cyl, M(x, z + .2, y, .32, .4, .32), '#9a9aa8', .08, s); mb.add(GEO.cyl, M(x, z + .41, y, .27, .03, .27), '#6ab4e8', 0);
+        mb.add(GEO.cyl, M(x, z + .65, y, .05, .5, .05), '#8a8a96', .05); mb.add(GEO.sph, M(x, z + .92, y, .08, .05, .08), '#a8a8b4', 0);
+        const jet = part(GEO.cone, '#9ad8ff', [x, z + 1.0, y], [.03, .12, .03], null, { emissive: '#3a7aaa', emissiveIntensity: .3 }); addDyn(jet, o, (o, t) => { jet.scale.y = .1 + Math.abs(Math.sin(t * 6)) * .06; }); break; }
       case 'termite': for (let i = 0; i < 3; i++) mb.add(GEO.cone, M(x + (i - 1) * .14, z + .4 - i * .07, y + (i % 2) * .1, .3 - i * .05, .85 - i * .2, .3 - i * .05), '#9a7048', .14, s + i, .2); for (let i = 0; i < 4; i++) mb.add(GEO.sph, M(x + Math.cos(i) * .2, z + .2 + i * .1, y + Math.sin(i) * .2 + .1, .04, .05, .03), '#2a1a10', 0); break;
       case 'anvil': mb.add(GEO.cyl, M(x, z + .15, y, .22, .3, .22), '#7a5230', .1, s); mb.add(GEO.box, M(x, z + .34, y, .55, .1, .38), '#8a8a9a', .1, s, .1); mb.add(GEO.box, M(x, z + .4, y, .5, .02, .33), '#a8a8b8', 0); break;
       case 'nutpile': { const g3 = new T3.Group(); for (let i = 0; i < 6; i++) g3.add(part(GEO.sph, '#a07040', [x + Math.cos(i * 1.7) * .14 * (i % 3) / 2, z + .05 + Math.floor(i / 3) * .07, y + Math.sin(i * 1.7) * .14 * (i % 3) / 2], [.06, .055, .06])); addDyn(g3, o, o => g3.children.forEach((c, i) => c.visible = i < o.nuts)); break; }
@@ -470,7 +478,7 @@ const PICK_MK = {
   banana: () => part(GEO.sph, '#ffd23a', null, [.04, .04, .13], [0, 0, .5]), coin: () => part(GEO.cyl, '#ffd23a', null, [.09, .02, .09], [Math.PI / 2, 0, 0], { metalness: .5, roughness: .4, emissive: '#553300', emissiveIntensity: .5 }),
   peanut: () => part(GEO.sph, '#d8b070', null, [.07, .05, .1]), nut: () => part(GEO.sph, '#8a5a30', null, [.07, .07, .07]),
   stone: () => part(GEO.sph, '#9a9aa4', null, [.09, .07, .08]), stick: () => part(GEO.cyl, '#8a6238', null, [.025, .45, .025], [0, 0, 1.4]),
-  poop: () => part(GEO.sph, '#5a3a1a', null, [.08, .07, .08]), water: () => part(GEO.sph, '#9ad8ff', null, [.04, .04, .04], null, { emissive: '#3a7aaa', emissiveIntensity: .4 }),
+  poop: () => part(GEO.sph, '#5a3a1a', null, [.08, .07, .08]), mega: () => part(GEO.sph2, '#4a2e12', null, [.22, .2, .22]), pee: () => part(GEO.sph, '#f0e060', null, [.03, .03, .03], null, { emissive: '#605010', emissiveIntensity: .3 }), water: () => part(GEO.sph, '#9ad8ff', null, [.04, .04, .04], null, { emissive: '#3a7aaa', emissiveIntensity: .4 }),
   hook: () => part(GEO.sph, '#c89a62', null, [.04, .04, .04]),
 };
 function syncItems() {
@@ -485,7 +493,10 @@ function syncItems() {
   for (const q of G.proj) put(q.kind === 'poop' ? 'poop' : q.kind, q.x, q.z, q.y, true);
   for (const k of Object.keys(PICK_MK)) hideFrom(k, cnt[k] || 0);
   let si = 0;
-  for (const s of G.splats) { const m = pool('splat', si++, () => { const mm = new T3.Mesh(new T3.CircleGeometry(.2, 9), new T3.MeshBasicMaterial({ color: '#4a2e12', transparent: true, depthWrite: false })); mm.rotation.x = -Math.PI / 2; mm.renderOrder = 1; return mm; }); m.position.set(s.x, groundSmooth(s.x, s.y) * LV + .02, s.y); m.material.opacity = clamp((28 - s.t) / 6, 0, .85); m.scale.setScalar(1 + (s.x * 7 % 1) * .5); }
+  let pi = 0;
+  for (const s of G.splats) if (s.c === 'pee') { const m = pool('puddle', pi++, () => { const mm = new T3.Mesh(new T3.CircleGeometry(.24, 10), new T3.MeshBasicMaterial({ color: '#d8c850', transparent: true, depthWrite: false })); mm.rotation.x = -Math.PI / 2; mm.renderOrder = 1; return mm; }); m.position.set(s.x, groundSmooth(s.x, s.y) * LV + .021, s.y); m.material.opacity = clamp((28 - s.t) / 6, 0, .6); m.scale.setScalar(.8 + (s.y * 5 % 1) * .7); }
+  hideFrom('puddle', pi);
+  for (const s of G.splats) if (s.c !== 'pee') { const m = pool('splat', si++, () => { const mm = new T3.Mesh(new T3.CircleGeometry(.2, 9), new T3.MeshBasicMaterial({ color: '#4a2e12', transparent: true, depthWrite: false })); mm.rotation.x = -Math.PI / 2; mm.renderOrder = 1; return mm; }); m.position.set(s.x, groundSmooth(s.x, s.y) * LV + .02, s.y); m.material.opacity = clamp((28 - s.t) / 6, 0, .85); m.scale.setScalar(1 + (s.x * 7 % 1) * .5); }
   hideFrom('splat', si);
 }
 

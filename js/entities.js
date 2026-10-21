@@ -105,7 +105,7 @@ function updatePlayer(p, dt) {
     G.dustT -= dt; if (p.moving && p.grounded && G.dustT <= 0) { G.dustT = p.sprint ? .08 : .17; emit(p.x, p.y, p.z, 1, { kind: 'dust', spread: .4, v0: .3, v1: 1, g: 0, life: .5 }); }
   } else p.moving = false;
   physics(p, dt);
-  if (K_.has('Space') && p.grounded && !p.act && !G.mini && p.stun <= 0 && !p.jumpHeld) { p.vz = 7.4 + .5 * (G.st.agi.lv - 1); p.grounded = false; p.jumpHeld = true; G.cnt.jumps++; sfx.jump(); emit(p.x, p.y, p.z, 4, { kind: 'dust', spread: .8, v0: .2, v1: 1, g: 0, life: .5 }); }
+  if (K_.has('Space') && p.grounded && !p.act && !G.mini && p.stun <= 0 && !p.jumpHeld) { p.vz = 7.4 + .5 * (G.st.agi.lv - 1) + (G.boostT > 0 ? 1.3 : 0); p.grounded = false; p.jumpHeld = true; G.cnt.jumps++; sfx.jump(); emit(p.x, p.y, p.z, 4, { kind: 'dust', spread: .8, v0: .2, v1: 1, g: 0, life: .5 }); }
   if (!K_.has('Space')) p.jumpHeld = false;
   p.onLand = hard => { if (hard > 4) { emit(p.x, p.y, p.z, 5, { kind: 'dust', spread: 1, v0: .3, v1: 1, g: 0, life: .5 }); if (W.kind[Math.floor(p.y) * N + Math.floor(p.x)] === K.WATER) sfx.splash(); } };
   G.energy = clamp(G.energy - (p.sprint ? 1.3 : p.moving ? .35 : .12) * dt, 0, 100);
@@ -413,7 +413,7 @@ function updateProj(dt) {
     const gh = groundAt(W, q.x, q.y);
     if (q.visual) { if ((q.z <= gh && q.vz < 0) || q.t > 4) G.proj.splice(i, 1); continue; }   // чужой снаряд — только картинка
     if (!done) done = projHit(q);
-    if (!done && wasIn && !inside && q.z < 2.3 && !(G.gateOpen && q.x >= N && Math.abs(q.y - W.gate.y - .5) < 2)) { q.x = q.px; q.y = q.py; q.vx = -q.vx * .2; q.vy = -q.vy * .2; q.vz = Math.abs(q.vz) * .1; }
+    if (!done && wasIn && !inside && q.z < 2.3 && q.kind !== 'pee' && q.kind !== 'water' && !(G.gateOpen && q.x >= N && Math.abs(q.y - W.gate.y - .5) < 2)) { q.x = q.px; q.y = q.py; q.vx = -q.vx * .2; q.vy = -q.vy * .2; q.vz = Math.abs(q.vz) * .1; }
     if (!done && inside && W.blocked[Math.floor(q.y) * N + Math.floor(q.x)] && q.z < gh + 3) { q.x = q.px; q.y = q.py; done = projLand(q, true); }
     else if (!done && q.z <= gh && q.vz < 0) done = projLand(q, false);
     if (!done && q.t > 4) done = true;
@@ -426,15 +426,18 @@ function projLand(q, wall) {
   else if (q.kind === 'banana') { addPickup({ type: 'banana', x, y, z: gz, age: 0 }); emit(x, y, gz, 3, { col: P_.yel, spread: .8, v0: .5, v1: 2 }); }
   else if (q.kind === 'stone') { addPickup({ type: 'stone', x, y, z: gz, age: 0 }); emit(x, y, gz, 5, { kind: 'dust', spread: 1, v0: .5, v1: 1.5, g: 0, life: .4 }); sfx.hit(); netNoise(x, y, 6, 'камень'); }
   else if (q.kind === 'water') { emit(x, y, gz, 4, { col: P_.w3, spread: 1.2, v0: 1, v1: 3, life: .4 }); }
+  else if (q.kind === 'pee') { if (Math.random() < .35) G.splats.push({ x, y, z: gz, t: 0, c: 'pee' }); }
+  else if (q.kind === 'mega') { SND.splat({ x, y }); SND.thud({ x, y }); emit(x, y, gz + .5, 40, { col: [P_.d0, P_.d1, P_.d2], spread: 3, v0: 2, v1: 7, life: 1.1, size: 2 }); for (let i = 0; i < 7; i++) G.splats.push({ x: x + rnd(-2, 2), y: y + rnd(-2, 2), z: gz, t: 0 }); if (isHost()) megaSplash(q.owner, x, y); else NET.send({ t: 'mega', x, y }); }
   return true;
 }
 function noiseAt(x, y, r, why) { const k = G.keeper; if (k && dist(k, { x, y }) < r + 6 && k.state !== 'chase' && k.state !== 'stunned') alertKeeper(k, x, y, why); }
 // поиск цели попадания (на любой стороне), затем — хост применяет, гость просит хоста
 function projHit(q) {
-  const z = q.z, hitR = q.kind === 'water' ? .9 : .7;
+  if (q.kind === 'mega') return false;      // мега-снаряд взрывается только при падении
+  const z = q.z, hitR = q.kind === 'water' || q.kind === 'pee' ? .9 : .7;
   for (let i = 0; i < G.vis.length; i++) { const v = G.vis[i]; if (v.a < .5 || !v.on) continue; if (Math.hypot(v.x - q.x, v.y - q.y) < hitR && z > -.2 && z < 3.6) return dispatchHit(q, 'v', i); }
   for (let i = 0; i < G.npcs.length; i++) { const n = G.npcs[i]; if (Math.hypot(n.x - q.x, n.y - q.y) < (n.sp === 'gorilla' ? 1 : .75) && z > n.z - .3 && z < n.z + (n.sp === 'gorilla' ? 4 : n.sp === 'tortoise' ? 1.5 : 3.2)) return dispatchHit(q, 'n', i); }
-  if (q.kind === 'poop') for (const p of livePlayers()) { if (p === q.owner || p.invuln > 0) continue; if (Math.hypot(p.x - q.x, p.y - q.y) < .7 && z > p.z - .3 && z < p.z + 3.6) return dispatchHit(q, 'p', p.netId); }
+  if (q.kind === 'poop' || q.kind === 'pee') for (const p of livePlayers()) { if (p === q.owner || p.invuln > 0) continue; if (Math.hypot(p.x - q.x, p.y - q.y) < .7 && z > p.z - .3 && z < p.z + 3.6) return dispatchHit(q, 'p', p.netId); }
   const k = G.keeper; if (k && Math.hypot(k.x - q.x, k.y - q.y) < .8 && z > k.z - .3 && z < k.z + 4.4) return dispatchHit(q, 'k', 0);
   for (const o of G.W.objs) if (o.type === 'gong' && Math.hypot(o.x - q.x, o.y - q.y) < 1 && z > 0 && z < 4) { ringGong(o); G.cnt.gongs++; return projLand(q, true); }
   return false;
@@ -465,6 +468,10 @@ function hitVisitor(by, kind, v, q) {
   } else if (kind === 'stone') {
     v.emo = { t: 2, s: 'АЙ!' }; v.on = Math.random() < .5; noiseAt(v.x, v.y, 5, 'крик');
     reward(by, { score: 12, cnt: { hits: 1 }, heat: 5, fl: [v.x, v.y, 3, '+12 камнем', P_.r3] });
+  } else if (kind === 'pee') {
+    if ((v.peeT || 0) > G.t) return; v.peeT = G.t + 1.2;
+    v.emo = { t: 2, s: 'ФУУ!' }; if (Math.random() < .45) { v.on = false; v.next = rnd(15, 30); }
+    reward(by, { score: 10, cnt: { pees: 1 }, heat: 3, fl: [v.x, v.y, 3, '+10 описал!', '#f0e060'] });
   } else if (kind === 'water') {
     v.emo = { t: 2, s: 'БРР!' }; v.cheer = 1.5; v.splat = 0;
     reward(by, { score: 8, cnt: { squirts: 1 }, fl: [v.x, v.y, 3, '+8 мокрый', P_.w3] });
@@ -474,7 +481,7 @@ function hitNpc(by, kind, n, q) {
   if (n.sp === 'chimp') {
     if (kind === 'banana') { n.bond = Math.min(100, n.bond + 30); n.mood = 'happy'; n.moodT = 2.5; reward(by, { fl: [n.x, n.y, n.z + 1, '+дружба', P_.pink] }); checkBond(n, by); }
     else if (kind === 'poop' || kind === 'stone') { n.fleeT = 5; n.bond = Math.max(0, n.bond - 25); if (n.bond < 50) n.friend = false; reward(by, { fl: [n.x, n.y, n.z + 1, 'обиделся', P_.red], sfx: 'bad' }); }
-    else if (kind === 'water') n.fleeT = 2;
+    else if (kind === 'water' || kind === 'pee') n.fleeT = kind === 'pee' ? 4 : 2;
   } else if (n.sp === 'gorilla') {
     if (kind === 'banana') { n.state = 'eat'; n.eatT = 4; n.full = 22; reward(by, { cnt: { decoy: 1 }, fl: [n.x, n.y, n.z + 2, 'ням! (накормлен)', P_.yel] }); }
     else { n.rage = 8; n.state = 'chase'; SND.gorilla(n); if (kind === 'poop') reward(by, { score: 10, toast: ['Ты попал в гориллу — она в ярости!', 'bad'], fl: [n.x, n.y, n.z + 3, 'РРР!', P_.red] }); }
@@ -489,11 +496,29 @@ function hitKeeper(by, kind, q) {
   const k = G.keeper;
   if (kind === 'banana') {
     if (k.state !== 'stunned') { k.state = 'stunned'; k.stunT = 3.5; k.target = null; emit(k.x, k.y, k.z + 2, 8, { kind: 'star', col: P_.yel, spread: 1.4, v0: 1, v1: 3, g: 8, life: .8 }); reward(by, { score: 25, cnt: { slips: 1 }, sfx: 'ok', toast: ['Смотритель поскользнулся на банане! Ключ — рядом (E)', 'good'], fl: [k.x, k.y, k.z + 3, 'ПОСКОЛЬЗНУЛСЯ! +25', P_.yel] }); }
-  } else if (kind === 'poop' || kind === 'stone') {
+  } else if (kind === 'poop' || kind === 'stone' || kind === 'pee') {
     if (k.state !== 'stunned') { k.state = 'chase'; k.lost = 0; k.chasing = by.netId; }
     reward(by, { score: 10, heat: 6, sfx: 'hit', fl: [k.x, k.y, k.z + 3, '+10 в смотрителя!', P_.org] });
   }
   projLand({ ...q, kind }, true);
+}
+// мега-снаряд: обрызгивает всех в радиусе 3 клеток (считает хост)
+function megaSplash(by, x, y) {
+  const R = 3, at = { x, y, z: 1 }; let hit = 0;
+  G.vis.forEach(v => { if (v.on && v.a > .5 && Math.hypot(v.x - x, v.y - y) < R + .8) { hitVisitor(by, 'poop', v, at); hit++; } });
+  G.npcs.forEach(n => { if (Math.hypot(n.x - x, n.y - y) < R) { hitNpc(by, 'poop', n, at); hit++; } });
+  for (const p of livePlayers()) if (p !== by && !p.invuln && Math.hypot(p.x - x, p.y - y) < R) { hurtPlayer(p, { dirt: 2, stun: .5, sfx: 'splat', fl: [p.x, p.y, p.z + 3, 'МЕГА-БРЫЗГИ!', P_.org] }); hit++; }
+  const k = G.keeper; if (k && Math.hypot(k.x - x, k.y - y) < R) { hitKeeper(by, 'poop', at); hit++; }
+  reward(by, { cnt: { megas: 1 }, toast: hit ? ['💥 Мега-снаряд накрыл ' + hit + ' целей!', 'good'] : null, score: hit * 5 });
+}
+// истошный крик: пугает всех вокруг и зовёт смотрителя (считает хост)
+function netScream(x, y) { if (isHost()) hostScream(G.me, x, y); else NET.send({ t: 'scream', x, y }); }
+function hostScream(by, x, y) {
+  const k = G.keeper; if (k && k.state !== 'chase' && k.state !== 'stunned') { alertKeeper(k, x, y, 'крик'); k.state = 'suspicious'; k.target = { x, y }; }
+  let scared = 0;
+  for (const v of G.vis) if (v.on && Math.hypot(v.x - x, v.y - y) < 15) { v.emo = { t: 2.2, s: v.kid ? 'УААА!' : 'ААА!' }; if (Math.random() < .55) { v.on = false; v.next = rnd(20, 40); } scared++; }
+  for (const n of G.npcs) { const d = Math.hypot(n.x - x, n.y - y); if (n.sp === 'chimp' && d < 10) n.fleeT = 4; if (n.sp === 'parrot' && d < 12) { n.fleeT = 5; n.perch = 0; } if (n.sp === 'gorilla' && d < 9 && n.pacified <= 0) n.rage = 5; }
+  reward(by, { score: scared * 2, cnt: { scared, screams: 1 } });
 }
 function ringGong(o) { o.ring = 1.2; SND.gong(o); netNoise(o.x, o.y, 22, 'гонг'); floater(o.x, o.y, 4, 'БОММ!', P_.yel); }
 
@@ -507,7 +532,9 @@ function duelStart(aId, bId) {
   for (const p of [pa, pb]) reward(p, { toast: ['⚔ ДУЭЛЬ! Первый, кто попадёт 💩 пять раз, побеждает. Заряды бесконечны!', 'good'], sfx: 'hoot' });
 }
 function hitPlayer(by, kind, pl, q) {
-  if (kind !== 'poop' || !pl || !by) return;
+  if (!pl || !by) return;
+  if (kind === 'pee') { if ((pl.peeHitT || 0) > G.t) return; pl.peeHitT = G.t + .6; hurtPlayer(pl, { dirt: .25, sfx: 'splash', fl: [pl.x, pl.y, pl.z + 3, 'ФУ, ОПИСАЛИ!', '#f0e060'] }); reward(by, { score: 4, cnt: { pees: 1 } }); return; }
+  if (kind !== 'poop') return;
   const duelNow = duelActive(by, pl);
   hurtPlayer(pl, { stun: duelNow ? .45 : .25, splat: 3, dirt: 1, sfx: 'splat', fl: [pl.x, pl.y, pl.z + 3, 'ПОПАЛИ!', P_.org] });
   reward(by, { fl: [pl.x, pl.y, pl.z + 3, 'В ЦЕЛЬ!', P_.yel], sfx: 'ok', cnt: { pHits: 1 }, score: duelNow ? 0 : 5 });

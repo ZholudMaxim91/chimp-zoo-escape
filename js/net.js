@@ -87,7 +87,7 @@ function netClose() { try { NET.tr && NET.tr.close(); } catch (e) { } NET.tr = n
 function clientLost() { NET.lost = true; if (G.state === 'play') { G.state = 'lost'; $('lostBox').style.display = 'flex'; } }
 
 // ── объекты: синхронизация изменений (разница) ──
-const DYN = ['bananas', 'sticks', 'berries', 'stones', 'nuts', 'hp', 'dug', 'opened'], TRANS = ['cool', 'active', 'ring', 'boostCool'];
+const DYN = ['bananas', 'sticks', 'berries', 'stones', 'nuts', 'hp', 'dug', 'opened', 'cocos'], TRANS = ['cool', 'active', 'ring', 'boostCool'];
 function objDyn(o) { const r = {}; for (const f of DYN) if (o[f] !== undefined) r[f] = o[f]; return r; }
 function allObjDyn() { const r = {}; for (const o of G.W.objs) { const d = objDyn(o); if (Object.keys(d).length) r[o.id] = d; } return r; }
 function applyObj(o, f) { for (const k in f) { if (TRANS.includes(k)) { o[k] = Math.max(o[k] || 0, f[k]); o['_l' + k] = o[k]; } else o[k] = f[k]; } NET.last.set(o.id, JSON.stringify(objDyn(o))); }
@@ -163,6 +163,8 @@ function hostOnMsg(from, m) {
     case 'hit': if (pl) hostHit(pl, m.k, m.tk, m.i, { x: m.x, y: m.y, z: m.z }); break;
     case 'sp': addPickup({ ...m.p, age: 0 }); break;
     case 'noise': noiseAt(m.x, m.y, m.r, m.why); break;
+    case 'mega': if (pl) megaSplash(pl, m.x, m.y); break;
+    case 'scream': if (pl) hostScream(pl, m.x, m.y); break;
     case 'hoot': hostHoot(m.x, m.y); break;
     case 'cheer': hostCheer(m.side, m.secs, m.tp); break;
     case 'claimKey': if (!G.keyHolder && pl) { G.keyHolder = from; G.keeper.hasKey = false; G.keeper.speedP = 2.6; } break;
