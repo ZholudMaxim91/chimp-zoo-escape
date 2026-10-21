@@ -13,11 +13,18 @@ function walkableAt(W, x, y, z, r = .28, step = STEP, noWater = false, gateOk = 
       return false;
     }
     const i = ty * N + tx;
-    if (W.blocked[i]) return false;
+    if (W.blocked[i] === 1) return false;
+    if (W.blocked[i] === 2 && Math.hypot(x - tx - .5, y - ty - .5) < (W.trunkR ? W.trunkR[i] || .3 : .3) + r) return false;
     if (noWater && W.kind[i] === K.WATER) return false;
     if (W.h[i] > z + step) return false;
   }
   return true;
+}
+// если существо оказалось внутри препятствия (телепорт, приземление, сдвинутый ящик) — выталкиваем к ближайшему свободному месту
+function unstick(e) {
+  if (walkableAt(G.W, e.x, e.y, e.z + .05, .28, STEP, false, true)) return false;
+  for (let r = .2; r < 4; r += .2) for (let a = 0; a < 6.28; a += .4) { const x = e.x + Math.cos(a) * r, y = e.y + Math.sin(a) * r; if (walkableAt(G.W, x, y, groundAt(G.W, x, y), .28)) { e.x = x; e.y = y; if (e.z < groundAt(G.W, x, y)) e.z = groundAt(G.W, x, y); return true; } }
+  return false;
 }
 function setFacing(e, dx, dy) {
   const l = Math.hypot(dx, dy) || 1; dx /= l; dy /= l; e.dx = dx; e.dy = dy;
@@ -83,6 +90,16 @@ function updatePlayer(p, dt) {
   const W = G.W, K_ = G.keys;
   if (p.stun > 0) p.stun -= dt; if (p.heat > 0) p.heat -= dt; if (p.hootCool > 0) p.hootCool -= dt; if (p.invuln > 0) p.invuln -= dt;
   if (p.tween) { updateTween(p, dt); return; }
+  if (p.grounded) unstick(p);
+  if (p.vine) { updateVineSwing(p, dt); return; }
+  if (p.roll) {   // перекат: короткий рывок, на мгновение неуязвим
+    const r = p.roll; r.t += dt; const sp = 6.2 * (1 - r.t / r.dur * .4);
+    stepEntity(p, r.dx, r.dy, dt, sp, { gateOk: true }); setFacing(p, r.dx, r.dy); physics(p, dt);
+    if (r.t >= r.dur) { p.roll = null; if (p.act && p.act.type === 'roll') p.act = null; }
+    return;
+  }
+  p.airT = p.grounded ? 0 : (p.airT || 0) + dt;
+  if (!p.grounded) tryAutoGrab(p);
   let dx = 0, dy = 0;
   if (!p.act && !G.mini && p.stun <= 0) {
     if (K_.has('KeyW') || K_.has('ArrowUp')) { dx--; dy--; }
@@ -104,11 +121,57 @@ function updatePlayer(p, dt) {
     G.tutDist += sp * dt * (p.moving ? 1 : 0); if (p.sprint) G.cnt.sprintT += dt;
     G.dustT -= dt; if (p.moving && p.grounded && G.dustT <= 0) { G.dustT = p.sprint ? .08 : .17; emit(p.x, p.y, p.z, 1, { kind: 'dust', spread: .4, v0: .3, v1: 1, g: 0, life: .5 }); }
   } else p.moving = false;
+  if (!p.grounded && (p.mvx || p.mvy)) { const sp = Math.hypot(p.mvx, p.mvy); stepEntity(p, p.mvx / sp, p.mvy / sp, dt, sp, { gateOk: true }); p.mvx *= 1 - .25 * dt; p.mvy *= 1 - .25 * dt; }
+  if (p.grounded) { p.mvx = 0; p.mvy = 0; }
   physics(p, dt);
+  if (G.mouse && G.mouse.in && G.aim && !p.tween && !(p.act && p.act.type === 'spin')) { const ax = G.aim.x - p.x, ay = G.aim.y - p.y; if (ax * ax + ay * ay > .04) setFacing(p, ax, ay); }
   if (K_.has('Space') && p.grounded && !p.act && !G.mini && p.stun <= 0 && !p.jumpHeld) { p.vz = 7.4 + .5 * (G.st.agi.lv - 1) + (G.boostT > 0 ? 1.3 : 0); p.grounded = false; p.jumpHeld = true; G.cnt.jumps++; sfx.jump(); emit(p.x, p.y, p.z, 4, { kind: 'dust', spread: .8, v0: .2, v1: 1, g: 0, life: .5 }); }
   if (!K_.has('Space')) p.jumpHeld = false;
-  p.onLand = hard => { if (hard > 4) { emit(p.x, p.y, p.z, 5, { kind: 'dust', spread: 1, v0: .3, v1: 1, g: 0, life: .5 }); if (W.kind[Math.floor(p.y) * N + Math.floor(p.x)] === K.WATER) sfx.splash(); } };
+  p.onLand = hard => { p.landT = .2; if (hard > 4) { emit(p.x, p.y, p.z, 5, { kind: 'dust', spread: 1, v0: .3, v1: 1, g: 0, life: .5 }); if (W.kind[Math.floor(p.y) * N + Math.floor(p.x)] === K.WATER) sfx.splash(); } };
   G.energy = clamp(G.energy - (p.sprint ? 1.3 : p.moving ? .35 : .12) * dt, 0, 100);
+}
+// ───────── Лианы на гигантских деревьях ─────────
+const VINE_G = 9.5;                 // м/с² для маятника (единицы сцены)
+const GRIP = .95;                   // от ступней до кисти поднятой руки (единицы сцены)
+function grabVine(p, v, gh) {       // gh — высота хвата (единицы сцены)
+  const dx = p.x - v.ax, dy = p.y - v.ay, dh = clamp(gh, v.ah - v.len, v.ah - 1) - v.ah, L = Math.max(1.2, Math.hypot(dx, dy, dh));
+  const k = 1 / L, vel = { x: p.mvx || 0, y: p.mvy || 0, h: (p.vz || 0) * LV };
+  p.vine = { v, L, p: { x: dx, y: dy, h: dh }, vel };
+  p.act = { type: 'vineSwing', t: 0, dur: 0, done: null }; p.grounded = false; p.tween = null; p.lastVine = v; p.lastVineT = G.t;
+  G.cnt.vineGrabs = (G.cnt.vineGrabs || 0) + 1; SND.whoosh(p);
+  if (G.cnt.vineGrabs === 1) toast('🌿 Ты на лиане! WASD — раскачка, Пробел — прыжок в сторону, V — писать сверху, ЛКМ — бросать', 'good');
+}
+function updateVineSwing(p, dt) {
+  const s = p.vine, v = s.v, K_ = G.keys;
+  if (!p.act || p.act.type === 'pee') { if (!p.act) p.act = { type: 'vineSwing', t: 0, dur: 0, done: null }; }
+  let fx = 0, fy = 0;
+  if (K_.has('KeyW') || K_.has('ArrowUp')) { fx--; fy--; } if (K_.has('KeyS') || K_.has('ArrowDown')) { fx++; fy++; }
+  if (K_.has('KeyA') || K_.has('ArrowLeft')) { fx--; fy++; } if (K_.has('KeyD') || K_.has('ArrowRight')) { fx++; fy--; }
+  const fl = Math.hypot(fx, fy) || 1, push = 5.5 + .5 * (G.st.agi.lv - 1);
+  s.vel.x += fx / fl * push * dt; s.vel.y += fy / fl * push * dt; s.vel.h -= VINE_G * dt;
+  for (const k of ['x', 'y', 'h']) { s.vel[k] *= 1 - .05 * dt; s.p[k] += s.vel[k] * dt; }
+  const L = Math.hypot(s.p.x, s.p.y, s.p.h) || 1, kk = s.L / L; s.p.x *= kk; s.p.y *= kk; s.p.h *= kk;
+  const nx = s.p.x / s.L, ny = s.p.y / s.L, nh = s.p.h / s.L, vr = s.vel.x * nx + s.vel.y * ny + s.vel.h * nh;
+  s.vel.x -= vr * nx; s.vel.y -= vr * ny; s.vel.h -= vr * nh;
+  p.x = v.ax + s.p.x; p.y = v.ay + s.p.y; p.z = (v.ah + s.p.h - GRIP) / LV; p.rz = p.z; p.vz = s.vel.h / LV; p.moving = false;
+  if (Math.hypot(s.vel.x, s.vel.y) > .3) setFacing(p, s.vel.x, s.vel.y);
+  const gh = groundAt(G.W, p.x, p.y), out = p.x < .6 || p.y < .6 || p.x > N - .6 || p.y > N - .6;
+  if (p.z < gh + .05 || out || (G.W.blocked[Math.floor(p.y) * N + Math.floor(p.x)] === 1 && p.z < gh + 2)) { if (out) { p.x = clamp(p.x, .7, N - .7); p.y = clamp(p.y, .7, N - .7); } releaseVine(p, false); if (p.z < gh) p.z = gh; }
+}
+function releaseVine(p, jump) {
+  const s = p.vine; if (!s) return; p.vine = null; if (p.act && p.act.type === 'vineSwing') p.act = null;
+  p.mvx = s.vel.x; p.mvy = s.vel.y; p.vz = s.vel.h / LV + (jump ? 4.5 : 0); p.grounded = false; p.airT = 0; p.lastVineT = G.t;
+  if (jump) { SND.whoosh(p); G.cnt.vineJumps = (G.cnt.vineJumps || 0) + 1; floater(p.x, p.y, p.z + 3, 'ЙА-ХУ!', P_.lime); }
+}
+// в полёте лиана рядом — хватаемся сами
+function tryAutoGrab(p) {
+  if (p.airT < .12 || !G.W.vines) return;
+  const hand = p.z * LV + GRIP;
+  for (const v of G.W.vines) {
+    if (v === p.lastVine && G.t - (p.lastVineT || 0) < .7) continue;
+    if (Math.hypot(p.x - v.ax, p.y - v.ay) < .75 && hand > v.ah - v.len - .25 && hand < v.ah - .6) { grabVine(p, v, hand); return true; }
+  }
+  return false;
 }
 function updateTween(p, dt) {
   const t = p.tween; t.t += dt; const k = clamp(t.t / t.dur, 0, 1), e = k * k * (3 - 2 * k);
@@ -422,7 +485,7 @@ function solveFrom(o, tgt, maxR = 12) {
   return { vx: dx * k / T, vy: dy * k / T, vz: (zt - o.z + .5 * GP * T * T) / T, T };
 }
 function throwPos(p, s, t) { const o = launchPoint(p); return { x: o.x + s.vx * t, y: o.y + s.vy * t, z: o.z + s.vz * t - .5 * GP * t * t }; }
-function spawnProj(kind, p, sol, visual = false, from) { const o = from || launchPoint(p); G.proj.push({ kind, x: o.x, y: o.y, z: o.z, vx: sol.vx, vy: sol.vy, vz: sol.vz, t: 0, owner: p, px: o.x, py: o.y, visual }); }
+function spawnProj(kind, p, sol, visual = false, from) { const o = from || launchPoint(p); G.proj.push({ kind, x: o.x, y: o.y, z: o.z, vx: sol.vx, vy: sol.vy, vz: sol.vz, t: 0, owner: p, px: o.x, py: o.y, visual, air: !!(p && p.me && (p.vine || !p.grounded) && p.z - groundAt(G.W, p.x, p.y) > 1.5) }); }
 function updateProj(dt) {
   const W = G.W;
   for (let i = G.proj.length - 1; i >= 0; i--) {
@@ -467,6 +530,7 @@ function projHit(q) {
 }
 function dispatchHit(q, tk, idx) {
   const by = q.owner; if (q.kind === 'poop') SND.splat(q); else if (q.kind === 'water') SND.splash(q); else SND.thud(q);
+  if (q.air && (q.kind === 'poop' || q.kind === 'pee')) { G.cnt.airHits = (G.cnt.airHits || 0) + 1; floater(q.x, q.y, q.z + 1, 'С ВЫСОТЫ! ×2', P_.lime); addScore(15); }
   if (isHost()) hostHit(by, q.kind, tk, idx, { x: q.x, y: q.y, z: q.z });
   else NET.send({ t: 'hit', k: q.kind, tk, i: idx, x: q.x, y: q.y, z: q.z });
   return true;

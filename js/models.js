@@ -125,6 +125,16 @@ function makeApe(F, kind = 'chimp') {
   }
   const hold = part(GEO.sph, '#5a3a1a', [0, -.36, .05], [.07, .065, .07]); hold.visible = false; j.elR.children[0].add(hold); j.hold = hold;
   const holdB = part(GEO.sph, '#ffd23a', [0, -.38, .06], [.035, .035, .12], [.4, 0, 0]); holdB.visible = false; j.elL.children[0].add(holdB); j.holdB = holdB;
+  const hand = j.elR.children[0], P = {};
+  P.banana = part(GEO.sph, '#ffd23a', [0, -.37, .08], [.035, .035, .13], [.5, 0, .3]);
+  P.stick = part(GEO.cyl, '#8a6238', [0, -.36, .18], [.018, .55, .018], [1.25, 0, 0]);
+  P.stone = part(GEO.sph, '#9a9aa4', [0, -.37, .05], [.075, .06, .07]);
+  P.coconut = part(GEO.sph2, '#5a3a1e', [0, -.39, .06], [.1, .11, .1]);
+  P.nut = part(GEO.sph, '#a07040', [0, -.36, .05], [.045, .045, .045]);
+  P.vine = new T3.Group(); for (let i = 0; i < 5; i++) P.vine.add(part(GEO.cyl, i % 2 ? '#4e7a2a' : '#5e8a32', [Math.sin(i * .6) * .08 * i, -.36 - i * .12, .05 + i * .04], [.022, .14, .022], [.2 + i * .15, 0, Math.sin(i) * .3]));
+  P.poop = hold; P.mega = hold;
+  for (const k in P) { if (P[k] !== hold) { P[k].visible = false; hand.add(P[k]); } }
+  j.props = P;
   return { root, j, kind };
 }
 // ───────── Человек (смотритель / посетитель) ─────────
@@ -151,6 +161,7 @@ function makeHuman(o) {
     const sn = limb(.28, .065, o.pants); kn.add(sn); sn.add(part(GEO.box, o.shoes, [0, -.3, .04], [.1, .07, .2]));
     j['sh' + n] = sh; j['el' + n] = el; j['hip' + n] = hip; j['kn' + n] = kn;
   }
+  if (o.belt) { j.bucket = new T3.Group(); j.bucket.add(part(GEO.cylT, '#8a8a96', [0, -.34, 0], [.11, .16, .11], [Math.PI, 0, 0])); j.bucket.add(part(GEO.sph, '#ffd23a', [0, -.27, 0], [.08, .04, .08])); j.bucket.visible = false; j.elL.children[0].add(j.bucket); }
   if (o.phone) { j.phone = part(GEO.box, '#111', [0, -.3, .04], [.05, .09, .015]); j.elR.children[0].add(j.phone); j.phone.visible = false; }
   return { root, j, kind: 'human' };
 }
@@ -184,7 +195,8 @@ const ZERO_KEYS = ['hips', 'torso', 'neck', 'head', 'shL', 'shR', 'elL', 'elR', 
 function resetPose(j) { for (const k of ZERO_KEYS) if (j[k]) j[k].rotation.set(0, 0, 0); if (j.mouth) j.mouth.scale.y = j.mouth.userData.sy || (j.mouth.userData.sy = j.mouth.scale.y); }
 // st: {move:0|1|2 (стоит/идёт/бежит), crouch, air, act, actP (0..1), t}
 function poseApe(r, st) {
-  const j = r.j, t = st.t; resetPose(j); j.hold.visible = false; j.holdB.visible = !!st.carry; j.body.rotation.z = 0; j.body.rotation.y = 0; j.body.position.y = 0;
+  const j = r.j, t = st.t; resetPose(j); j.hold.visible = false; j.holdB.visible = !!st.carry; j.body.rotation.z = 0; j.body.rotation.y = 0; j.body.rotation.x = 0; j.body.position.y = 0; j.hips.rotation.x = 0;
+  if (j.props) { for (const k in j.props) j.props[k].visible = false; const pr = j.props[st.prop]; if (pr) { pr.visible = true; if (st.prop === 'poop' || st.prop === 'mega') pr.scale.set(.07 * (st.prop === 'mega' ? 2.4 : 1), .065 * (st.prop === 'mega' ? 2.4 : 1), .07 * (st.prop === 'mega' ? 2.4 : 1)); } }
   let hipsY = .42;
   if (st.move && !st.act) {          // ходьба на костяшках (четвероногая)
     const ph = t * (st.move === 2 ? 12 : 7.5), s = Math.sin(ph), c = Math.cos(ph);
@@ -203,11 +215,45 @@ function poseApe(r, st) {
     j.head.rotation.y = Math.sin(t * .7) * .25;
   }
   if (st.crouch && !st.act) { hipsY = .26; j.torso.rotation.x = .85; j.knL.rotation.x = j.knR.rotation.x = 1.3; j.hipL.rotation.x = j.hipR.rotation.x = -1.0; }
-  if (st.air) { j.shL.rotation.x = j.shR.rotation.x = -2.2; j.hipL.rotation.x = j.hipR.rotation.x = -.9; j.knL.rotation.x = j.knR.rotation.x = 1.3; j.torso.rotation.x = .2; }
+  if (st.air) {
+    if ((st.vz || 0) > 1.5) { j.shL.rotation.x = j.shR.rotation.x = -2.7; j.hipL.rotation.x = j.hipR.rotation.x = -1.1; j.knL.rotation.x = j.knR.rotation.x = 1.6; j.torso.rotation.x = .3; }        // взлёт: поджался
+    else { j.shL.rotation.x = j.shR.rotation.x = -1.6; j.shL.rotation.z = -1.1; j.shR.rotation.z = 1.1; j.hipL.rotation.x = -.5; j.hipR.rotation.x = -.1; j.knL.rotation.x = .5; j.knR.rotation.x = .2; j.torso.rotation.x = .05; }   // падение: руки в стороны
+  }
+  if (st.land > 0 && !st.act) { hipsY = .26; j.torso.rotation.x = .9; j.knL.rotation.x = j.knR.rotation.x = 1.4; j.hipL.rotation.x = j.hipR.rotation.x = -1.1; j.shL.rotation.x = j.shR.rotation.x = -.9; }
+  if (!st.move && !st.act && !st.air && (t % 9) > 7.4) { j.shR.rotation.x = -2.6; j.shR.rotation.z = .9; j.elR.rotation.x = -1.6 + Math.sin(t * 22) * .2; j.head.rotation.z = -.2; }   // почёсывается
   const a = st.act, p = st.actP || 0;
-  if (a === 'throw') {
+  if (a === 'pick') {          // тянется вверх и срывает
+    const k = clamp(st.actP || 0, 0, 1), up = k < .6;
+    j.torso.rotation.x = -.15; j.shR.rotation.x = up ? -3.0 : -1.5; j.elR.rotation.x = up ? -.1 : -1.2; j.shL.rotation.x = -2.6; j.hips.position.y = .44; hipsY = .46 + (up ? .06 : 0);
+    if (!up && j.props && j.props[st.prop]) j.props[st.prop].visible = true; else if (j.props && j.props[st.prop]) j.props[st.prop].visible = false;
+  } else if (a === 'shake') {    // обхватил ствол и трясёт
+    const w = Math.sin(t * 30); j.torso.rotation.x = .3; j.shL.rotation.x = j.shR.rotation.x = -1.9; j.shL.rotation.z = .4; j.shR.rotation.z = -.4; j.elL.rotation.x = j.elR.rotation.x = -.6; j.body.rotation.z = w * .06; j.hipL.rotation.x = -.3; j.hipR.rotation.x = .2; j.mouth.scale.y = j.mouth.userData.sy * 2;
+  } else if (a === 'grab') {     // нагнулся, подобрал, выпрямился с предметом
+    const k = clamp(st.actP || 0, 0, 1), down = k < .55;
+    j.torso.rotation.x = down ? 1.2 : .4; j.neck.rotation.x = down ? -.7 : -.2; j.shR.rotation.x = down ? -1.1 : -1.7; j.elR.rotation.x = down ? -.1 : -1.0; j.knL.rotation.x = j.knR.rotation.x = down ? 1.0 : .5; j.hipL.rotation.x = j.hipR.rotation.x = down ? -.8 : -.4; hipsY = down ? .32 : .38;
+    if (j.props && j.props[st.prop]) j.props[st.prop].visible = !down;
+  } else if (a === 'fish') {     // сунул палку в термитник, потом облизывает
+    const w = Math.sin(t * 9), lick = (t % 2.4) > 1.9;
+    j.torso.rotation.x = .9; j.neck.rotation.x = -.6; j.hipL.rotation.x = j.hipR.rotation.x = -1.1; j.knL.rotation.x = j.knR.rotation.x = 1.4; hipsY = .28;
+    if (lick) { j.shR.rotation.x = -1.7; j.elR.rotation.x = -1.9; j.mouth.scale.y = j.mouth.userData.sy * 2.5; } else { j.shR.rotation.x = -1.2 + w * .15; j.elR.rotation.x = -.15; }
+    j.shL.rotation.x = -.9; if (j.props) j.props.stick.visible = true;
+  } else if (a === 'crack') {    // бьёт камнем по ореху/кокосу
+    const w = Math.abs(Math.sin(t * 7)); j.torso.rotation.x = .75; j.neck.rotation.x = -.5; j.hipL.rotation.x = j.hipR.rotation.x = -1.2; j.knL.rotation.x = j.knR.rotation.x = 1.5; hipsY = .27;
+    j.shR.rotation.x = -2.4 + w * 1.5; j.elR.rotation.x = -.4; j.shL.rotation.x = -1.1; j.elL.rotation.x = -.3; if (j.props) j.props.stone.visible = true;
+  } else if (a === 'drum') {
+    const w = Math.sin(t * 16); j.torso.rotation.x = .45; j.shL.rotation.x = -1.6 + w * .6; j.shR.rotation.x = -1.6 - w * .6; j.elL.rotation.x = j.elR.rotation.x = -.5; j.mouth.scale.y = j.mouth.userData.sy * 2; hipsY = .34;
+  } else if (a === 'puzzle') {
+    const w = Math.sin(t * 10); j.torso.rotation.x = .6; j.neck.rotation.x = -.4; j.shL.rotation.x = -1.3 + w * .15; j.shR.rotation.x = -1.3 - w * .15; j.elL.rotation.x = j.elR.rotation.x = -.9; j.head.rotation.z = Math.sin(t * 2) * .2; hipsY = .3; j.knL.rotation.x = j.knR.rotation.x = 1.3; j.hipL.rotation.x = j.hipR.rotation.x = -1;
+  } else if (a === 'drink') {    // присел, пьёт из ладоней
+    const w = (t % 1.2) > .6; j.torso.rotation.x = 1.1; j.neck.rotation.x = -.3; j.hipL.rotation.x = j.hipR.rotation.x = -1.3; j.knL.rotation.x = j.knR.rotation.x = 1.6; hipsY = .25;
+    j.shL.rotation.x = j.shR.rotation.x = w ? -1.9 : -.9; j.elL.rotation.x = j.elR.rotation.x = w ? -1.6 : -.2; j.shL.rotation.z = .3; j.shR.rotation.z = -.3;
+  } else if (a === 'roll') {     // кувырок через голову
+    const k = clamp(st.actP || 0, 0, 1); j.hips.rotation.x = k * Math.PI * 2; hipsY = .32; j.torso.rotation.x = 1.2; j.neck.rotation.x = .6; j.hipL.rotation.x = j.hipR.rotation.x = -1.6; j.knL.rotation.x = j.knR.rotation.x = 2.0; j.shL.rotation.x = j.shR.rotation.x = -1.6; j.elL.rotation.x = j.elR.rotation.x = -1.4;
+  } else if (a === 'vineSwing') { // висит на одной руке, ноги болтаются
+    const w = Math.sin(t * 3); j.shR.rotation.x = -3.1; j.elR.rotation.x = 0; j.shL.rotation.x = -1.4 + w * .3; j.shL.rotation.z = -.9; j.torso.rotation.x = -.1 + w * .1; j.hipL.rotation.x = -.4 + w * .4; j.hipR.rotation.x = -.4 - w * .4; j.knL.rotation.x = j.knR.rotation.x = .6; hipsY = .42; j.mouth.scale.y = j.mouth.userData.sy * 1.8;
+  } else if (a === 'throw') {
     j.torso.rotation.x = .15; j.torso.rotation.y = p < .5 ? .5 : -.4;
-    j.shR.rotation.x = p < .5 ? -2.9 : -1.3; j.elR.rotation.x = p < .5 ? -1.2 : -.1; j.shL.rotation.x = -.8; j.hold.visible = p < .5;
+    j.shR.rotation.x = p < .5 ? -2.9 : -1.3; j.elR.rotation.x = p < .5 ? -1.2 : -.1; j.shL.rotation.x = -.8; j.hold.visible = false; if (j.props) { const pr = j.props[st.prop || 'poop']; if (pr) pr.visible = p < .5; }
   } else if (a === 'eat' || a === 'drink') {
     j.torso.rotation.x = .3; j.shR.rotation.x = -1.6; j.elR.rotation.x = -1.9; j.shR.rotation.z = -.35; j.neck.rotation.x = -.2 + Math.sin(t * 14) * .08;
     j.mouth.scale.y = j.mouth.userData.sy * (1.6 + Math.sin(t * 14) * .8);
@@ -249,7 +295,7 @@ function poseApe(r, st) {
 }
 function poseHuman(r, st) {
   const j = r.j, t = st.t; resetPose(j);
-  if (j.phone) j.phone.visible = false;
+  if (j.phone) j.phone.visible = false; if (j.bucket) j.bucket.visible = st.act === 'feed';
   if (st.move) {
     const ph = t * (st.move === 2 ? 11 : 7), s = Math.sin(ph);
     j.hipL.rotation.x = .55 * s; j.hipR.rotation.x = -.55 * s; j.knL.rotation.x = Math.max(0, -s) * .8; j.knR.rotation.x = Math.max(0, s) * .8;

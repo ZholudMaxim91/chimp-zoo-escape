@@ -11,6 +11,9 @@
   #view{position:relative}
   #view canvas{position:absolute;left:0;top:0;image-rendering:pixelated;image-rendering:crisp-edges}
   canvas#c{cursor:none}
+  #labels{position:absolute;left:0;top:0;pointer-events:none;overflow:hidden}
+  .lbl{position:absolute;left:0;top:0;white-space:nowrap;font-family:"Segoe UI",Arial,sans-serif;font-weight:700;line-height:1.1;text-shadow:-1px -1px 0 #1b1726,1px -1px 0 #1b1726,-1px 1px 0 #1b1726,1px 1px 0 #1b1726,0 2px 3px rgba(0,0,0,.6);will-change:transform}
+  #bladderBar>i{background:#e8d84a}
   /* панели в «пиксельном» стиле: квадратные углы, толстая рамка, ступенчатая тень */
   .panel{position:fixed;background:#2e2a4a;border:3px solid #f6f2e2;box-shadow:4px 4px 0 #1b1726;padding:8px 10px;font-size:13px;line-height:1.35}
   #top{left:50%;transform:translateX(-50%);top:8px;display:flex;gap:14px;align-items:center;white-space:nowrap;font-weight:700}
@@ -78,9 +81,9 @@
 </style>
 </head>
 <body class="inmenu">
-<div id="stage"><div id="view"><canvas id="gl"></canvas><canvas id="c"></canvas></div></div>
+<div id="stage"><div id="view"><canvas id="gl"></canvas><canvas id="c"></canvas><div id="labels"></div></div></div>
 
-<div class="panel" id="top"><div>⭐ <span id="score">0</span></div><div>⚡ <span class="bar" id="energyBar"><i></i></span></div><div id="dayInfo"></div><div id="escapeInfo"></div><div id="seedInfo" title="Сид мира"></div><div id="netTag" style="color:#68b2f0"></div></div>
+<div class="panel" id="top"><div>⭐ <span id="score">0</span></div><div title="Силы">⚡ <span class="bar" id="energyBar"><i></i></span></div><div title="Мочевой пузырь">🚽 <span class="bar" id="bladderBar" style="width:70px"><i></i></span></div><div id="dayInfo"></div><div id="escapeInfo"></div><div id="seedInfo" title="Сид мира"></div><div id="netTag" style="color:#68b2f0"></div></div>
 <div id="duelBar" class="panel" style="display:none;top:56px;left:50%;transform:translateX(-50%);border-color:#ff7a60;font-weight:700;white-space:nowrap"></div>
 <div id="invite" class="panel" style="display:none;top:100px;left:50%;transform:translateX(-50%);border-color:#ffd23a;font-weight:700;background:#4a3a10"></div>
 <div class="panel" id="players" style="display:none;left:8px;top:150px;width:200px"></div>
@@ -110,7 +113,7 @@
         <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> идти · <kbd>Shift</kbd> бег · <kbd>C</kbd> красться<br>
         <kbd>Пробел</kbd> прыжок (лазай по ярусам!)<br>
         <kbd>E</kbd> действие · <kbd>R</kbd> съесть банан<br>
-        <kbd>Мышь</kbd> — прицел · <kbd>ЛКМ</kbd> применить инструмент<br>
+        <kbd>Мышь</kbd> — прицел (обезьяна смотрит туда же) · <kbd>ЛКМ</kbd> применить инструмент · <kbd>Ctrl</kbd>+колесо — масштаб<br>
         <kbd>ПКМ</kbd> клич (публика радуется) · <kbd>Q</kbd> истошный крик (все пугаются, зовёт смотрителя)<br><kbd>V</kbd> (держать) — писать туда, куда смотрит прицел · <kbd>1-7</kbd>/колесо — инструмент<br><kbd>Y</kbd> принять дуэль говном · <kbd>B</kbd> построить шалаш (3 палки + 2 камня)</div>
       <div><h3>Инструменты</h3>
         1 💩 бросок · 2 🍌 банан (приманка, подножка)<br>

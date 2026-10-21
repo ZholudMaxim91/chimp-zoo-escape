@@ -7,9 +7,11 @@ cv.width = VW; cv.height = VH; g.imageSmoothingEnabled = false;
 const renderer = new T3.WebGLRenderer({ canvas: glc, antialias: false, powerPreference: 'high-performance' });
 renderer.setPixelRatio(1); renderer.setSize(VW, VH, false);
 renderer.shadowMap.enabled = true; renderer.shadowMap.type = T3.PCFShadowMap;
+function setZoom(z) { camera.zoom = clamp(z, .55, 2.4); camera.updateProjectionMatrix(); const s = 12 / Math.min(1, camera.zoom); Object.assign(sun.shadow.camera, { left: -s, right: s, top: s, bottom: -s }); sun.shadow.camera.updateProjectionMatrix(); try { localStorage.setItem('chimpZoom', camera.zoom); } catch (e) { } }
 function fitCanvas() {
   const s = Math.min(innerWidth / VW, innerHeight / VH), w = Math.floor(VW * s) + 'px', h = Math.floor(VH * s) + 'px';
   for (const c of [glc, cv]) { c.style.width = w; c.style.height = h; }
+  const lb = $('labels'); if (lb) { lb.style.width = w; lb.style.height = h; }
   const v = $('view'); v.style.width = w; v.style.height = h;
 }
 addEventListener('resize', fitCanvas); fitCanvas();
@@ -23,9 +25,11 @@ const sun = new T3.DirectionalLight('#fff0d4', .95); sun.castShadow = true;
 sun.shadow.mapSize.set(1536, 1536); Object.assign(sun.shadow.camera, { left: -12, right: 12, top: 12, bottom: -12, near: 1, far: 80 }); sun.shadow.bias = -.0012; sun.shadow.normalBias = .02;
 scene.add(sun); scene.add(sun.target);
 const CAM = { x: 0, y: 0, z: 0 };
+try { const z = +localStorage.getItem('chimpZoom'); if (z) { camera.zoom = clamp(z, .55, 2.4); camera.updateProjectionMatrix(); } } catch (e) { }
 function updateCam(dt, snap) {
   const m = G.me; if (!m) return;
-  const tx = m.x, ty = m.y, tz = visY(m);
+  let tx = m.x, ty = m.y; const tz = visY(m);
+  if (G.mouse && G.mouse.in && G.aim && G.state === 'play') { const ax = (G.aim.x - m.x) * .28, ay = (G.aim.y - m.y) * .28, l = Math.hypot(ax, ay), mx = 3.5 / camera.zoom; const k = l > mx ? mx / l : 1; tx += ax * k; ty += ay * k; }
   if (snap) { CAM.x = tx; CAM.y = ty; CAM.z = tz; } else { const k = 1 - Math.exp(-dt * 7); CAM.x += (tx - CAM.x) * k; CAM.y += (ty - CAM.y) * k; CAM.z += (tz - CAM.z) * k; }
   // привязка к пиксельной сетке, чтобы картинка не «дрожала»
   const px = 1 / (PPU / Math.SQRT2);
@@ -222,7 +226,7 @@ function buildFoliage(W) {
   const seed = W.seedNum % 997, R = mulberry32(W.seedNum + 5), G3 = new T3.Group();
   const blade = new MB(); for (let i = 0; i < 3; i++) blade.add(GEO.cone5, M(Math.cos(i * 2.1) * .04, .07, Math.sin(i * 2.1) * .04, .022, .16, .022, Math.cos(i * 2.1) * .35, 0, Math.sin(i * 2.1) * .35), '#ffffff', 0);
   const tg = blade.build(new T3.MeshStandardMaterial({ vertexColors: true, roughness: 1 })).geometry;
-  const tufts = [], flowers = [], pebbles = [];
+  const tufts = [], flowers = [], pebbles = [], ferns = [], shrooms = [], reeds = [], lilies = [];
   for (let y = -OUT; y < N + OUT; y++) for (let x = -OUT; x < N + OUT; x++) {
     const inside = x >= 0 && y >= 0 && x < N && y < N, k = kindAt(W, x, y);
     if (inside && W.blocked[y * N + x]) continue;
@@ -232,29 +236,87 @@ function buildFoliage(W) {
       if (k === K.GRASS && R() < .8) tufts.push([wx, z, wy, R()]);
       if (k === K.GRASS && R() < .07) flowers.push([wx, z, wy, R()]);
       if ((k === K.DIRT || k === K.SAND || k === K.ROCK) && R() < .25) pebbles.push([wx, z, wy, R()]);
+      if (inside && k === K.GRASS && R() < .05) ferns.push([wx, z, wy, R()]);
+      if (inside && k === K.GRASS && R() < .02 && W.forests && W.forests.some(f => Math.hypot(f.x - wx, f.y - wy) < f.r + 1)) shrooms.push([wx, z, wy, R()]);
+      if (inside && k === K.SAND && [[1, 0], [-1, 0], [0, 1], [0, -1]].some(([a, b]) => kindAt(W, x + a, y + b) === K.WATER) && R() < .4) reeds.push([wx, z, wy, R()]);
+      if (inside && k === K.WATER && R() < .07) lilies.push([wx, -.3, wy, R()]);
     }
   }
   const mk = (geo, list, colFn, scale, matOpts = {}) => {
     const im = new T3.InstancedMesh(geo, new T3.MeshStandardMaterial(Object.assign({ roughness: 1, flatShading: true }, matOpts)), list.length);
     const m4 = new T3.Matrix4(), c = new T3.Color();
-    list.forEach(([x, z, y, r], i) => { m4.compose(new T3.Vector3(x, z * LV, y), new T3.Quaternion().setFromEuler(new T3.Euler(0, r * 6.28, 0)), new T3.Vector3().setScalar(scale(r))); im.setMatrixAt(i, m4); im.setColorAt(i, c.set(colFn(r, x, y))); });
+    list.forEach(([x, z, y, r], i) => { const sc = scale(r); m4.compose(new T3.Vector3(x, z * LV, y), new T3.Quaternion().setFromEuler(new T3.Euler(0, r * 6.28, 0)), geo === GEO.cyl ? new T3.Vector3(sc, .01, sc) : new T3.Vector3().setScalar(sc)); im.setMatrixAt(i, m4); im.setColorAt(i, c.set(colFn(r, x, y))); });
     im.instanceMatrix.needsUpdate = true; if (im.instanceColor) im.instanceColor.needsUpdate = true; return im;
   };
   G3.add(mk(tg, tufts, (r, x, y) => { const c = mix3(PALK.g1, PALK.g3, vnoise(x * .45, y * .45, seed) * .7 + r * .3); return new T3.Color(c[0], c[1], c[2]); }, r => .7 + r * .7));
   G3.add(mk(GEO.sph, flowers, r => ['#ff8fb0', '#fff6d6', '#ffd23a', '#c8a0ff', '#ff6a4a'][Math.floor(r * 5)], () => .045));
   const pb = mk(GEO.sph, pebbles, r => r < .5 ? '#8a8a92' : '#a8a296', r => .035 + r * .04); G3.add(pb);
+  const fern = new MB(); for (let i = 0; i < 6; i++) fern.add(GEO.box, M(Math.cos(i * 1.05) * .14, .08, Math.sin(i * 1.05) * .14, .3, .015, .07, 0, -i * 1.05, -.45), '#ffffff', 0);
+  G3.add(mk(fern.build().geometry, ferns, r => r < .5 ? '#3e7a32' : '#4e8a3a', r => .8 + r * .6));
+  const shroom = new MB(); shroom.add(GEO.cyl, M(0, .04, 0, .02, .08, .02), '#f0e8d8', 0); shroom.add(GEO.sph, M(0, .09, 0, .06, .035, .06), '#ffffff', 0);
+  G3.add(mk(shroom.build().geometry, shrooms, r => r < .6 ? '#c83a2a' : '#c8a070', r => .9 + r));
+  G3.add((() => { const im = new T3.InstancedMesh(GEO.cyl, new T3.MeshStandardMaterial({ color: '#7a9a42', roughness: 1, flatShading: true }), Math.max(1, reeds.length * 3)); const m4 = new T3.Matrix4(); let i = 0; for (const [x, z, y, r] of reeds) for (let k = 0; k < 3; k++) { m4.compose(new T3.Vector3(x + (k - 1) * .06, z * LV + .25, y + Math.sin(k + r) * .05), new T3.Quaternion().setFromEuler(new T3.Euler((r - .5) * .3, 0, (k - 1) * .15)), new T3.Vector3(.012, .5 + r * .3, .012)); im.setMatrixAt(i++, m4); } im.count = i; return im; })());
+  G3.add(mk(GEO.cyl, lilies, r => r < .3 ? '#3a7a3a' : '#4e8a42', r => .12 + r * .08, {}));
   return G3;
 }
 
 // ───────── Объекты вольера ─────────
-const DYNOBJ = [];       // подвижные части: { o, update(o, t) }
+const DYNOBJ = [], VINES = [];       // подвижные части: { o, update(o, t) }
 function addDyn(obj3d, o, update) { scene.add(obj3d); DYNOBJ.push({ obj3d, o, update }); }
-function treeInto(mb, x, z, y, s, seed) {
-  const R = mulberry32(seed * 7 + 1), h = (1.1 + R() * .5) * s;
+function treeInto(mb, x, z, y, s, seed, sp) {
+  const R = mulberry32(seed * 7 + 1);
+  if (!sp) sp = ['oak', 'oak', 'birch', 'pine', 'acacia'][seed % 5];
+  if (sp === 'pine') {
+    const h = (1.6 + R() * .7) * s; mb.add(GEO.cylT, M(x, z + h * .3, y, .1 * s, h * .6, .1 * s), '#5a3a22', .1, seed);
+    for (let i = 0; i < 5; i++) { const k = i / 5, r = (.62 - k * .45) * s; mb.add(GEO.cone, M(x + (R() - .5) * .05, z + h * .32 + i * h * .16, y, r, h * .26, r, 0, R() * 3, 0), ['#1f5a30', '#2a6a38', '#245e34'][i % 3], .14, seed + i, .12); }
+    return;
+  }
+  if (sp === 'birch') {
+    const h = (1.4 + R() * .5) * s; mb.add(GEO.cyl, M(x, z + h / 2, y, .07 * s, h, .07 * s), '#e8e4d8', .05, seed);
+    for (let i = 0; i < 6; i++) mb.add(GEO.box, M(x + .07 * s * Math.cos(i * 2), z + .2 + i * h / 7, y + .07 * s * Math.sin(i * 2), .05, .02, .05), '#2a2a2a', 0);
+    for (let i = 0; i < 7; i++) { const a = R() * 6.28, d = R() * .35 * s, r = (.18 + R() * .16) * s; mb.add(GEO.sph, M(x + Math.cos(a) * d, z + h * .65 + R() * h * .45, y + Math.sin(a) * d, r, r * 1.2, r), ['#6aa848', '#88bc56', '#a6cc62'][i % 3], .16, seed + i, .25); }
+    return;
+  }
+  if (sp === 'acacia') {
+    const h = (1.3 + R() * .4) * s, lx = (R() - .5) * .5, ly = (R() - .5) * .5;
+    mb.add(GEO.cyl, M(x + lx / 2, z + h / 2, y + ly / 2, .08 * s, h, .08 * s, ly * .8, 0, -lx * .8), '#6a4a2a', .1, seed);
+    for (let i = 0; i < 4; i++) { const a = i * 1.57 + R(); mb.add(GEO.sph, M(x + lx + Math.cos(a) * .4 * s, z + h + .05, y + ly + Math.sin(a) * .4 * s, .55 * s, .12 * s, .5 * s), ['#5a8a32', '#6a9a3a'][i % 2], .16, seed + i, .2); }
+    return;
+  }
+  if (sp === 'baobab') {
+    const h = (1.2 + R() * .3) * s; mb.add(GEO.cylT, M(x, z + h / 2, y, .38 * s, h, .38 * s), '#8a7258', .12, seed, .08);
+    for (let i = 0; i < 6; i++) { const a = i / 6 * 6.28; mb.add(GEO.cyl, M(x + Math.cos(a) * .3 * s, z + h + .12, y + Math.sin(a) * .3 * s, .05 * s, .45 * s, .05 * s, Math.sin(a) * .8, 0, -Math.cos(a) * .8), '#7a6248', .1); mb.add(GEO.sph, M(x + Math.cos(a) * .55 * s, z + h + .32, y + Math.sin(a) * .55 * s, .22 * s, .16 * s, .22 * s), '#4e8a3a', .16, seed + i, .3); }
+    return;
+  }
+  if (sp === 'willow') {
+    const h = (1.3 + R() * .4) * s; mb.add(GEO.cylT, M(x, z + h / 2, y, .13 * s, h, .13 * s), '#5a4a32', .1, seed);
+    mb.add(GEO.sph, M(x, z + h + .15, y, .62 * s, .42 * s, .62 * s), '#5e9a48', .16, seed, .25);
+    for (let i = 0; i < 14; i++) { const a = i / 14 * 6.28 + R() * .3, d = (.45 + R() * .2) * s, l = (.7 + R() * .5) * s; mb.add(GEO.box, M(x + Math.cos(a) * d, z + h + .05 - l / 2, y + Math.sin(a) * d, .07, l, .07), ['#7ab85a', '#6aa84e'][i % 2], .12, seed + i); }
+    return;
+  }
+  const h = (1.1 + R() * .5) * s;
   mb.add(GEO.cylT, M(x, z + h / 2, y, .13 * s, h, .13 * s), '#6a4628', .12, seed);
   for (let b = 0; b < 2; b++) { const a = R() * 6.28; mb.add(GEO.cyl, M(x + Math.cos(a) * .18 * s, z + h * .85, y + Math.sin(a) * .18 * s, .05 * s, .45 * s, .05 * s, Math.sin(a) * .7, 0, -Math.cos(a) * .7), '#6a4628', .1, seed + b); }
   const greens = ['#2f7a32', '#3d8f3a', '#4ea442', '#62b44c'];
   for (let i = 0; i < 6; i++) { const a = R() * 6.28, d = R() * .35 * s, r = (.32 + R() * .25) * s; mb.add(GEO.sph, M(x + Math.cos(a) * d, z + h + .1 + R() * .45 * s, y + Math.sin(a) * d, r, r * .85, r), greens[Math.floor(R() * 4)], .16, seed + i, .25); }
+}
+// гигантское кривое дерево: толстый скрученный ствол, ветви во все стороны, огромная крона
+function giantInto(mb, o, x, z, y) {
+  const R = mulberry32(o.seed * 3 + 11), H = o.ht * LV * 2.45, seg = 14; let px = x, py = y;
+  for (let i = 0; i < seg; i++) {
+    const k = i / seg, r = (.62 - k * .32), ox = Math.sin(k * 3 + o.twist) * .35 * k, oy = Math.cos(k * 2.3 + o.twist) * .35 * k;
+    mb.add(GEO.cylT, M(x + ox, z + (k + .5 / seg) * H, y + oy, r, H / seg * 1.08, r, Math.sin(k * 4) * .08, k * .9, Math.cos(k * 3) * .08), i % 2 ? '#5e4430' : '#6a4e36', .14, o.seed + i, .1);
+    px = x + ox; py = y + oy;
+  }
+  for (let i = 0; i < 5; i++) mb.add(GEO.cone, M(x + Math.cos(i * 1.26) * .55, z + .25, y + Math.sin(i * 1.26) * .55, .18, .6, .18, Math.sin(i * 1.26) * .9, 0, -Math.cos(i * 1.26) * .9), '#5a4230', .12);    // корни
+  // ветви к точкам крепления лиан + пучки листвы
+  const vines = G.W.vines.filter(v => v.tree === o.id);
+  for (const v of vines) {
+    const bx = (px + v.ax) / 2, by = (py + v.ay) / 2, bh = v.ah, len = Math.hypot(v.ax - px, v.ay - py) + .4, ang = Math.atan2(v.ay - py, v.ax - px);
+    mb.add(GEO.cyl, M(bx, bh + .05, by, .1, len, .1, 0, -ang, Math.PI / 2 - .12), '#5e4430', .12, v.id);
+    for (let i = 0; i < 3; i++) mb.add(GEO.sph, M(v.ax + (R() - .5) * 1.2, bh + .35 + R() * .3, v.ay + (R() - .5) * 1.2, .8, .45, .8), ['#2a6a32', '#357a3a', '#2e7034'][i], .16, v.id + i, .3);
+  }
+  for (let i = 0; i < 8; i++) { const a = R() * 6.28, d = R() * 2.2, r = .9 + R() * .9; mb.add(GEO.sph, M(px + Math.cos(a) * d, z + H + R() * .8, py + Math.sin(a) * d, r, r * .65, r), ['#245e2e', '#2e7034', '#3a8240', '#2a6632'][i % 4], .18, o.seed + i, .3); }
 }
 function palmInto(mb, x, z, y, seed) {
   const R = mulberry32(seed * 13 + 3), segs = 9, lean = (R() - .5) * .5, leanA = R() * 6.28;
@@ -272,7 +334,8 @@ function buildObjects(W) {
   for (const o of W.objs) {
     const x = o.x, y = o.y, z = gz(x, y), s = o.seed || o.id;
     switch (o.type) {
-      case 'tree': treeInto(mb, x, z, y, .9 + (s % 5) * .06, s); break;
+      case 'tree': treeInto(mb, x, z, y, .9 + (s % 5) * .06, s, o.sp); break;
+      case 'giant_tree': giantInto(mb, o, x, z, y); break;
       case 'banana_tree': {
         const top = palmInto(mb, x, z, y, s), bun = new T3.Group();
         for (let b = 0; b < 3; b++) { const a = b * 2.1 + .5, gb = grp(top.x + Math.cos(a) * .14, top.z - .12, top.y + Math.sin(a) * .14); for (let i = 0; i < 5; i++) gb.add(part(GEO.sph, i % 2 ? '#ffd23a' : '#f0c020', [Math.cos(i * 1.3) * .045, -i * .03, Math.sin(i * 1.3) * .045], [.028, .07, .028], [.3, 0, .4])); bun.add(gb); }
@@ -381,6 +444,21 @@ function buildObjects(W) {
   for (const px of [st.x + .1, st.x + st.w - .1]) { mb.add(GEO.cyl, M(px, sz + .85, st.y + .1, .05, 1.7, .05), '#6a4628', .08); mb.add(GEO.box, M(px + (px < bx ? .25 : -.25), sz + .7, st.y + .15, .45, 1.3, .06), '#a82020', .12); }
   const ban = new T3.Mesh(GEO.plane, new T3.MeshStandardMaterial({ map: canvasTex(96, 20, (c) => { c.fillStyle = '#d24a34'; c.fillRect(0, 0, 96, 20); for (let i = 0; i < 96; i += 12) { c.fillStyle = 'rgba(255,255,255,.15)'; c.fillRect(i, 0, 6, 20); } c.fillStyle = '#ffd23a'; c.font = 'bold 14px monospace'; c.textAlign = 'center'; c.fillText('★ ШОУ ★', 48, 15); }), side: T3.DoubleSide }));
   ban.scale.set(st.w - .3, .55, 1); ban.position.set(bx, sz + 1.5, st.y + .12); scene.add(ban);
+  // декор внутри вольера: поваленные брёвна, пни, груды камней
+  for (const d of W.decorIn || []) {
+    const z = groundSmooth(d.x, d.y) * LV;
+    if (d.k === 'flog') { mb.add(GEO.cyl, M(d.x, z + .12, d.y, .13, 1.4, .13, 0, d.a, Math.PI / 2), '#6a4a2c', .14, d.s, .05); mb.add(GEO.cyl, M(d.x + Math.cos(d.a) * .7, z + .12, d.y - Math.sin(d.a) * .7, .1, .02, .1, 0, d.a, Math.PI / 2), '#c8a070', 0); }
+    else if (d.k === 'stump') { mb.add(GEO.cylT, M(d.x, z + .14, d.y, .2, .28, .2), '#6a4a2c', .12, d.s); mb.add(GEO.cyl, M(d.x, z + .285, d.y, .17, .01, .17), '#c8a070', 0); }
+    else for (let i = 0; i < 3; i++) mb.add(GEO.sph, M(d.x + Math.cos(i * 2.1 + d.a) * .2, z + .08, d.y + Math.sin(i * 2.1 + d.a) * .2, .16 - i * .03, .12 - i * .02, .14), i ? '#8a8a96' : '#7a7a86', .18, d.s + i, .3);
+  }
+  // лианы на гигантах (висят до высоты, где их можно поймать в прыжке)
+  VINES.length = 0;
+  for (const v of W.vines || []) {
+    const gv = new T3.Group(), segs = 8, sl = v.len / segs;
+    for (let i = 0; i < segs; i++) { const p = part(GEO.cyl, i % 2 ? '#4e7a2a' : '#5e8a32', [0, -(i + .5) * sl, 0], [.035, sl * 1.05, .035]); p.castShadow = true; gv.add(p); }
+    for (let i = 0; i < 4; i++) gv.add(part(GEO.box, '#6aa848', [(i % 2 - .5) * .08, -(i + 1.5) * sl * 1.6, 0], [.12, .02, .06], [0, i, .5]));
+    gv.position.set(v.ax, v.ah, v.ay); scene.add(gv); VINES.push({ v, g: gv });
+  }
   // декор снаружи
   for (const d of W.decor) {
     const x = d.x, y = d.y;
@@ -444,8 +522,10 @@ function syncCreatures() {
     const r = rigFor(p, 'player'), y = visY(p), mv = moveAngle(r, p);
     const ang = p.me ? Math.atan2(p.dx, p.dy) : mv;
     const a = p.act ? p.act.type : (p.stun > 0 ? 'stun' : null);
-    const air = p.me ? (!p.grounded && p.z > groundAt(G.W, p.x, p.y) + .3) : false;
-    poseApe(r, { t: tq(T, r.seed), move: p.moving ? (p.sprint ? 2 : 1) : 0, crouch: p.crouch, air, act: a === 'show' || a === 'climb' || a === 'swing' ? 'up' : a, actP: p.act && p.act.dur ? p.act.t / p.act.dur : 0 });
+    const air = p.me ? (!p.grounded && !p.vine && p.z > groundAt(G.W, p.x, p.y) + .3) : false;
+    const prop = p.act ? (p.act.prop || (p.act.type === 'dig' && p.me && G.inv.stick > 0 ? 'stick' : p.act.type === 'whip' ? 'vine' : null)) : null;
+    const actP = p.act ? (p.act.type === 'roll' && p.roll ? p.roll.t / p.roll.dur : p.act.dur ? p.act.t / p.act.dur : 0) : 0;
+    poseApe(r, { t: tq(T, r.seed), move: p.moving ? (p.sprint ? 2 : 1) : 0, crouch: p.crouch, air, vz: p.vz, land: p.landT, act: a === 'show' || a === 'climb' || a === 'swing' ? 'up' : a, actP, prop });
     placeRig(r, p, y, ang);
     showDirt(r, p.dirtP || 0, p.dirtB || 0); r.root.visible = !(p.invuln > 0 && Math.floor(G.t * 10) % 2);
   }
@@ -461,7 +541,7 @@ function syncCreatures() {
   const k = G.keeper;
   if (k) {
     const r = rigFor(k, 'keeper'); moveAngle(r, k);
-    poseHuman(r, { t: tq(T, r.seed), move: k.moving ? (k.state === 'chase' ? 2 : 1) : 0, act: k.state === 'stunned' ? 'stun' : k.state === 'sleep' ? 'sleep' : (k.state === 'chase' || k.state === 'suspicious') ? 'alert' : null });
+    poseHuman(r, { t: tq(T, r.seed), move: k.moving ? (k.state === 'chase' ? 2 : 1) : 0, act: k.state === 'stunned' ? 'stun' : k.state === 'sleep' ? 'sleep' : k.state === 'feed' ? 'feed' : (k.state === 'chase' || k.state === 'suspicious') ? 'alert' : null });
     placeRig(r, k, visY(k), Math.atan2(k.dx, k.dy));
     const km = r.j.torso.children.find(c => c.geometry === GEO.box && c.material.color.getHexString() === 'ffd23a'); if (km) km.visible = k.hasKey;
     if (KCONE) { const range = k.visRange || 8.5; KCONE.visible = k.state !== 'stunned' && k.state !== 'sleep' && k.state !== 'tohut'; KCONE.scale.set(range, range, 1); KCONE.position.set(k.x, groundSmooth(k.x, k.y) * LV + .04, k.y); KCONE.rotation.z = -Math.atan2(k.dy, k.dx); KCONE.material.color.set(k.state === 'chase' ? '#ff4030' : k.state === 'suspicious' ? '#ffb020' : '#ffe680'); KCONE.material.opacity = k.state === 'chase' ? .24 : .13; }
@@ -536,15 +616,14 @@ function syncItems() {
 const LAMPS = [];
 const _c1 = new T3.Color(), _c2 = new T3.Color();
 function applyDaylight() {
-  const p = typeof dayPhase === 'function' ? dayPhase() : .5;
-  const sunUp = Math.sin((p - .25) * Math.PI * 2);              // >0 днём
-  const day = clamp(sunUp * 1.6 + .25, 0, 1), dusk = clamp(1 - Math.abs(sunUp) * 4, 0, 1) * (p > .15 && p < .9 ? 1 : 0);
-  sun.intensity = .12 + .88 * day; sun.color.copy(_c1.set('#ffe2b0').lerp(_c2.set('#fff4dc'), day)).lerp(_c2.set('#ff9a5a'), dusk * .7);
-  hemi.intensity = .32 + .5 * day; hemi.color.copy(_c1.set('#5a6a9a').lerp(_c2.set('#d8ecff'), day));
-  scene.background.copy(_c1.set('#14203a').lerp(_c2.set('#2f5a30'), day));
-  const ang = (p - .25) * Math.PI * 2;                                     // солнце идёт по дуге
-  sun.position.set(sun.target.position.x - Math.cos(ang) * 16, sun.target.position.y + 6 + Math.max(.2, sunUp) * 18, sun.target.position.z - 5);
-  for (const l of LAMPS) l.material.emissiveIntensity = .4 + (1 - day) * 2.2;
+  const L = typeof dayLight === 'function' ? dayLight() : { day: 1, tw: 0 }, day = L.day, tw = L.tw, h = typeof hourNow === 'function' ? hourNow() : 12;
+  // ночью — лунный свет: заметно темнее и синее, но всё хорошо видно
+  sun.intensity = .42 + .58 * day; sun.color.copy(_c1.set('#a8bcff').lerp(_c2.set('#fff4dc'), day)).lerp(_c2.set('#ff9a5a'), tw * .65);
+  hemi.intensity = .6 + .22 * day; hemi.color.copy(_c1.set('#8a9ad0').lerp(_c2.set('#d8ecff'), day)); hemi.groundColor.copy(_c1.set('#4a5a64').lerp(_c2.set('#6a7a54'), day));
+  scene.background.copy(_c1.set('#22304e').lerp(_c2.set('#2f5a30'), day));
+  const ang = day > .01 ? clamp((h - 6) / 14, 0, 1) * Math.PI : Math.PI * .35;   // днём — солнце по дуге, ночью — луна
+  sun.position.set(sun.target.position.x - Math.cos(ang) * 16, sun.target.position.y + 8 + Math.sin(ang) * 16, sun.target.position.z - 5);
+  for (const l of LAMPS) l.material.emissiveIntensity = .4 + (1 - day) * 2;
 }
 
 // ───────── Кадр ─────────
@@ -555,6 +634,15 @@ function renderWorld(dt) {
   if (WATER) WATER.material.uniforms.t.value = G.t;
   applyDaylight();
   for (const d of DYNOBJ) d.update(d.o, G.t);
+  const held = new Map(); for (const p of G.players) { const vid = p.me ? (p.vine ? p.vine.v.id : -1) : (p.vn ?? -1); if (vid >= 0) held.set(vid, p); }
+  let ri = 0;
+  for (const V of VINES) {
+    const p = held.get(V.v.id); V.g.visible = !p;
+    if (!p) { V.g.rotation.x = Math.sin(G.t * .7 + V.v.id) * .05; V.g.rotation.z = Math.cos(G.t * .5 + V.v.id * 2) * .05; continue; }
+    const a = new T3.Vector3(V.v.ax, V.v.ah, V.v.ay), b = new T3.Vector3(p.x, (p.me ? p.z : p.rz) * LV + .95, p.y), d = b.clone().sub(a), L = d.length();
+    const m = pool('rope', ri++, () => part(GEO.cyl, '#5e8a32', null, [.035, 1, .035])); m.position.copy(a).addScaledVector(d, .5); m.scale.set(.035, L, .035); m.quaternion.setFromUnitVectors(new T3.Vector3(0, 1, 0), d.normalize());
+  }
+  hideFrom('rope', ri);
   syncCreatures(); syncItems();
   renderer.setRenderTarget(rt); renderer.render(scene, camera);
   renderer.setRenderTarget(null); renderer.render(postScene, postCam);
@@ -563,33 +651,45 @@ function renderWorld(dt) {
   drawOverlay();
 }
 function drawOverlay() {
-  const T = G.t;
+  const T = G.t; lblStart();
   // подсказки над существами
   for (const p of G.players) {
     if (p.gone) continue; const y = visY(p), s = project(p.x, y + 2.9, p.y);
-    if (isNet() || !p.me) pxText(g, p.name, s.x, s.y, p.me ? P_.white : P_.teal, 7);
-    if (p.stun > 0) pxText(g, '*', s.x, s.y - 8, P_.yel, 10);
+    if (isNet() || !p.me) lbl(p.name, s.x, s.y, p.me ? P_.white : P_.teal, 7);
+    if (p.stun > 0) lbl('*', s.x, s.y - 8, P_.yel, 10);
     if (p.me && p.act && p.act.dur > .5) { const w = 20, pr = clamp(p.act.t / p.act.dur, 0, 1); rect(g, s.x - w / 2 - 1, s.y + 2, w + 2, 4, P_.ink); rect(g, s.x - w / 2, s.y + 3, w * pr, 2, P_.yel); }
   }
   for (const n of G.npcs) {
     const y = n.sp === 'parrot' ? n.rz : visY(n), s = project(n.x, y + (n.sp === 'gorilla' ? 4.2 : n.sp === 'parrot' ? 1 : 3), n.y);
-    if (n.sp === 'chimp' && n.gang) { pxText(g, (n.gang === NET.id ? '⚔ ' : '') + n.name, s.x, s.y, n.gang === NET.id ? P_.org : P_.grey, 7); if (n.gang === NET.id) { rect(g, s.x - 8, s.y + 2, 16, 3, P_.ink); rect(g, s.x - 7, s.y + 3, 14 * clamp(n.loyal / 100, 0, 1), 1, n.loyal < 30 ? P_.red : P_.lime); } }
-    else if (n.sp === 'chimp' && n.act === 'sleep') pxText(g, 'z', s.x + Math.sin(T * 2 + n.hx) * 2, s.y - (T * 4 % 4), P_.white, 7);
-    else if (n.sp === 'chimp' && n.bond >= 50) pxText(g, '♥', s.x, s.y, P_.pink, 8);
-    else if (n.sp === 'chimp' && n.want && Math.floor(T * 2) % 2) pxText(g, '?', s.x, s.y, P_.yel, 8);
-    if (n.sp === 'gorilla' && n.state === 'chase') pxText(g, '!', s.x, s.y, P_.red, 10);
-    if (n.sp === 'parrot' && n.say && n.sayT > 0) pxText(g, n.say, s.x, s.y, P_.white, 7);
+    if (n.sp === 'chimp' && n.gang) { lbl((n.gang === NET.id ? '⚔ ' : '') + n.name, s.x, s.y, n.gang === NET.id ? P_.org : P_.grey, 7); if (n.gang === NET.id) { rect(g, s.x - 8, s.y + 2, 16, 3, P_.ink); rect(g, s.x - 7, s.y + 3, 14 * clamp(n.loyal / 100, 0, 1), 1, n.loyal < 30 ? P_.red : P_.lime); } }
+    else if (n.sp === 'chimp' && n.act === 'sleep') lbl('z', s.x + Math.sin(T * 2 + n.hx) * 2, s.y - (T * 4 % 4), P_.white, 7);
+    else if (n.sp === 'chimp' && n.bond >= 50) lbl('♥', s.x, s.y, P_.pink, 8);
+    else if (n.sp === 'chimp' && n.want && Math.floor(T * 2) % 2) lbl('?', s.x, s.y, P_.yel, 8);
+    if (n.sp === 'gorilla' && n.state === 'chase') lbl('!', s.x, s.y, P_.red, 10);
+    if (n.sp === 'parrot' && n.say && n.sayT > 0) lbl(n.say, s.x, s.y, P_.white, 7);
   }
-  const k = G.keeper; if (k) { const s = project(k.x, visY(k) + 4.4, k.y); if (k.state === 'chase') pxText(g, '!', s.x, s.y, P_.red, 11); else if (k.state === 'suspicious') pxText(g, '?', s.x, s.y, P_.yel, 11); else if (k.state === 'stunned') pxText(g, '*', s.x, s.y, P_.yel, 11); else if (k.state === 'sleep') pxText(g, 'Zz', s.x + Math.sin(T * 2) * 3, s.y - (T * 6 % 6), P_.white, 9); }
-  for (const it of G.intruders) { const s = project(it.x, visY(it) + 4.4, it.y); if (it.state === 'wander') pxText(g, '🧗'.length ? 'ВЫГНАТЬ!' : '', s.x, s.y, P_.red, 7); if (it.emo) pxText(g, it.emo.s, s.x, s.y - 9, P_.white, 8); }
-  for (const v of G.vis) if (v.emo && v.a > .5) { const s = project(v.x, 4.2, v.y); g.globalAlpha = Math.min(1, v.emo.t); pxText(g, v.emo.s, s.x, s.y - (2 - v.emo.t) * 5, P_.white, 8); g.globalAlpha = 1; }
+  const k = G.keeper; if (k) { const s = project(k.x, visY(k) + 4.4, k.y); if (k.state === 'chase') lbl('!', s.x, s.y, P_.red, 11); else if (k.state === 'suspicious') lbl('?', s.x, s.y, P_.yel, 11); else if (k.state === 'stunned') lbl('*', s.x, s.y, P_.yel, 11); else if (k.state === 'sleep') lbl('Zz', s.x + Math.sin(T * 2) * 3, s.y - (T * 6 % 6), P_.white, 9); }
+  for (const it of G.intruders) { const s = project(it.x, visY(it) + 4.4, it.y); if (it.state === 'wander') lbl('🧗'.length ? 'ВЫГНАТЬ!' : '', s.x, s.y, P_.red, 7); if (it.emo) lbl(it.emo.s, s.x, s.y - 9, P_.white, 8); }
+  for (const v of G.vis) if (v.emo && v.a > .5) { const s = project(v.x, 4.2, v.y); g.globalAlpha = Math.min(1, v.emo.t); lbl(v.emo.s, s.x, s.y - (2 - v.emo.t) * 5, P_.white, 8); g.globalAlpha = 1; }
   for (const o of G.W.objs) if (o.type === 'dig' && !o.dug && G.me && Math.hypot(G.me.x - o.x, G.me.y - o.y) < 4.5 && Math.floor(T * 2.5) % 2) { const s = project(o.x, groundSmooth(o.x, o.y) + .3, o.y); rect(g, s.x, s.y - 3, 1, 1, P_.yel); rect(g, s.x - 1, s.y - 2, 3, 1, P_.white); rect(g, s.x, s.y - 1, 1, 1, P_.yel); }
-  if (G.gateOpen && Math.floor(T * 3) % 2) { const s = project(N + 1.5, 4, G.W.gate.y + .5); pxText(g, '> БЕГИ! >', s.x, s.y, P_.yel, 8); }
+  if (G.gateOpen && Math.floor(T * 3) % 2) { const s = project(N + 1.5, 4, G.W.gate.y + .5); lbl('> БЕГИ! >', s.x, s.y, P_.yel, 8); }
   drawParts();
-  for (const f of G.floaters) { const a = clamp(1.6 - f.t, 0, 1); g.globalAlpha = a; const s = project(f.x, f.z, f.y); pxText(g, f.text, s.x, s.y - 14 - f.t * 14, f.col, 8); g.globalAlpha = 1; }
+  for (const f of G.floaters) { const a = clamp(1.6 - f.t, 0, 1); g.globalAlpha = a; const s = project(f.x, f.z, f.y); lbl(f.text, s.x, s.y - 14 - f.t * 14, f.col, 8); g.globalAlpha = 1; }
   if (G.whipFx && G.me) { const a = project(G.me.x, visY(G.me) + 2, G.me.y), b = project(G.whipFx.x, G.whipFx.z, G.whipFx.y); g.globalAlpha = clamp(G.whipFx.t * 4, 0, 1); for (let i = 0; i <= 10; i++) { const k = i / 10, x = a.x + (b.x - a.x) * k, y = a.y + (b.y - a.y) * k - Math.sin(k * Math.PI) * 10; rect(g, Math.round(x), Math.round(y), 2, 2, '#4e8a32'); } g.globalAlpha = 1; }
-  drawTutArrows(); drawAim();
+  drawTutArrows(); drawAim(); lblEnd();
 }
+// ── читаемые подписи: обычный шрифт поверх картинки ──
+const LBL = { pool: [], i: 0 };
+function lblStart() { LBL.i = 0; }
+function lbl(text, x, y, col = '#fff', size = 8) {
+  const box = $('labels'); if (!box) return;
+  let el = LBL.pool[LBL.i]; if (!el) { el = document.createElement('div'); el.className = 'lbl'; box.appendChild(el); LBL.pool.push(el); }
+  LBL.i++; const sc = box.clientWidth / VW;
+  if (el._t !== text) { el.textContent = text; el._t = text; }
+  el.style.display = 'block'; el.style.color = col; el.style.opacity = g.globalAlpha; el.style.fontSize = Math.max(12, Math.round(size * sc * .62)) + 'px';
+  el.style.transform = `translate(${Math.round(x * sc)}px, ${Math.round(y * sc)}px) translate(-50%, -100%)`;
+}
+function lblEnd() { for (let i = LBL.i; i < LBL.pool.length; i++) if (LBL.pool[i].style.display !== 'none') LBL.pool[i].style.display = 'none'; }
 
 // ── частицы (пиксельные, поверх) ──
 function emit(x, y, z, n, o = {}) {

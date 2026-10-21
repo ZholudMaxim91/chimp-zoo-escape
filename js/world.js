@@ -3,6 +3,7 @@
 const N = 51;                                   // сторона вольера в клетках (51² ≈ 1,6 × прежних 40²)
 const WS = N / 40;                              // масштаб расстановки относительно старой карты
 const LH = 8;                                   // высота одного яруса в пикселях
+const TRUNKS = ['tree', 'banana_tree', 'coco_palm', 'giant_tree'];   // их клетка «круглая» (можно обходить вплотную)
 const K = { GRASS: 0, DIRT: 1, ROCK: 2, SAND: 3, WATER: 4, DECK: 5, COBBLE: 6 };
 
 function genWorld(seedStr) {
@@ -14,7 +15,7 @@ function genWorld(seedStr) {
   let uid = 1;
   const add = (type, x, y, extra = {}, block = true) => {
     const o = { id: uid++, type, x, y, tx: Math.floor(x), ty: Math.floor(y), ...extra };
-    o.blk = !!(block && inb(o.tx, o.ty)); W.objs.push(o); if (o.blk) blocked[I(o.tx, o.ty)] = 1; return o;
+    o.blk = !!(block && inb(o.tx, o.ty)); W.objs.push(o); if (o.blk) { blocked[I(o.tx, o.ty)] = TRUNKS.includes(type) ? 2 : 1; if (TRUNKS.includes(type)) W.trunkR[I(o.tx, o.ty)] = o.trunkR || (type === 'tree' ? (o.sp === 'baobab' ? .42 : .26) : .22); } return o;
   };
   const free = (x, y) => inb(x, y) && !blocked[I(x, y)] && kind[I(x, y)] !== K.WATER && kind[I(x, y)] !== K.DECK;
   const flatFree = (x, y, hh = 0) => free(x, y) && h[I(x, y)] === hh;
@@ -24,60 +25,85 @@ function genWorld(seedStr) {
 
   // ── основа: трава с пятнами земли
   for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) kind[I(x, y)] = vnoise(x * .22, y * .22, seed) > .72 ? K.DIRT : K.GRASS;
+  W.trunkR = new Float32Array(N * N);
 
-  // ── главная гора (с севера-запада): пологий склон с одной стороны, обрывы с другой
-  const m = { x: ri(Math.round(9 * WS), Math.round(13 * WS)), y: ri(Math.round(9 * WS), Math.round(13 * WS)), r: 9.5 }, pathAng = rr(0, Math.PI * 2);
+  // ── раскладка: у каждого сида своя, но правила одни и те же
+  const gy = ri(Math.round(N * .35), Math.round(N * .6));                 // ворота — на востоке
+  const st = { x: ri(Math.round(N * .28), Math.round(N * .56)), y: 2, w: 8, d: 3 };   // сцена — у северного забора
+  const zones = [{ x: st.x + 4, y: 3, r: 6 }, { x: N - 5, y: gy, r: 8 }];  // эти места не занимаем
+  // soft — можно заходить на холмы и леса (но не на гору, рощу, пруды, сцену и вход)
+  const place = (r, minY = 6, soft = false) => {
+    for (let i = 0; i < 500; i++) {
+      const x = rr(r + 2, N - r - 3), y = rr(r + minY, N - r - 3);
+      if (zones.every(z => (soft && !z.hard) || Math.hypot(z.x - x, z.y - y) > z.r + r + (soft ? -1 : .8))) { const z = { x: Math.round(x), y: Math.round(y), r, hard: !soft }; zones.push(z); return z; }
+    }
+    return null;
+  };
+  zones.forEach(z => z.hard = true);
+  // главная гора: пологий склон с одной стороны, уступы и отвесная стена с других
+  const m = place(9) || { x: 12, y: 13, r: 9 }, pathAng = rr(0, Math.PI * 2), mPeak = R() < .5 ? 4 : 5;
   for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) {
-    const dx = x - m.x, dy = y - m.y, d = Math.hypot(dx, dy); if (d >= m.r) continue;
+    const dx = x - m.x, dy = y - m.y, d = Math.hypot(dx, dy) * (1 + (vnoise(x * .15, y * .15, seed + 41) - .5) * .35); if (d >= m.r) continue;
     let diff = Math.abs(Math.atan2(dy, dx) - pathAng); diff = Math.min(diff, Math.PI * 2 - diff);
     const t = clamp(1 - d / m.r + (vnoise(x * .35, y * .35, seed + 5) - .5) * .12, 0, 1);
     let hh;
-    if (diff < .75) hh = Math.floor(t * 5.2);                       // пологий склон (ступеньки по 1)
-    else if (diff > 2.45) hh = t > .3 ? 4 : 0;                      // отвесная стена (нужна лестница/лиана)
-    else hh = t > .62 ? 4 : (t > .28 ? 2 : 0);                      // уступы по 2 (можно перепрыгнуть)
+    if (diff < .75) hh = Math.floor(t * 5.2);
+    else if (diff > 2.45) hh = t > .3 ? 4 : 0;
+    else hh = t > .62 ? 4 : (t > .28 ? 2 : 0);
     if (t > .8) hh = Math.max(hh, 4);
     h[I(x, y)] = hh; kind[I(x, y)] = hh >= 3 ? K.ROCK : (hh >= 1 ? K.GRASS : kind[I(x, y)]);
   }
   W.mountain = m;
-  // верхняя площадка-«домик на дереве» 3×3 на высоте 5
+  W.grove = place(6.5);                                              // роща гигантов — сразу после горы, чтобы ей хватило места
   for (let j = -1; j <= 1; j++) for (let i = -1; i <= 1; i++) { const x = m.x + i, y = m.y + j; h[I(x, y)] = 5; kind[I(x, y)] = K.DECK; }
-  // ── второй холм (юго-восток)
-  const m2 = { x: ri(Math.round(24 * WS), Math.round(28 * WS)), y: ri(Math.round(25 * WS), Math.round(29 * WS)), r: 6.5 };
-  for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) {
-    const d = Math.hypot(x - m2.x, y - m2.y); if (d >= m2.r) continue;
-    const hh = Math.floor((1 - d / m2.r) * 4.2); h[I(x, y)] = Math.max(h[I(x, y)], hh); kind[I(x, y)] = hh >= 3 ? K.ROCK : K.GRASS;
+  // дополнительные холмы (1–2), разной высоты и формы
+  const hills = [];
+  for (let k = 0, nh = 1 + (R() < .55 ? 1 : 0); k < nh; k++) {
+    const hz = place(rr(4.5, 6.5), 6, true); if (!hz) continue; const top = R() < .5 ? 3 : 4, ang = rr(0, 6.28), stretch = rr(.7, 1.3);
+    for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) {
+      const ex = (x - hz.x) * Math.cos(ang) + (y - hz.y) * Math.sin(ang), ey = -(x - hz.x) * Math.sin(ang) + (y - hz.y) * Math.cos(ang);
+      const d = Math.hypot(ex * stretch, ey / stretch) + (vnoise(x * .3, y * .3, seed + 17 + k) - .5) * 1.5; if (d >= hz.r) continue;
+      const hh = Math.floor((1 - d / hz.r) * (top + .2)); h[I(x, y)] = Math.max(h[I(x, y)], hh); kind[I(x, y)] = hh >= 3 ? K.ROCK : K.GRASS;
+    }
+    hills.push(hz);
   }
-  W.hill2 = m2;
-  // ── пруд (с северо-востока), песчаный берег
-  const pd = { x: ri(Math.round(27 * WS), Math.round(31 * WS)), y: ri(Math.round(9 * WS), Math.round(13 * WS)), rx: 6.5, ry: 4.4 };
-  for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) {
-    const d = Math.hypot((x - pd.x) / pd.rx, (y - pd.y) / pd.ry) + (vnoise(x * .5, y * .5, seed + 9) - .5) * .25;
-    if (d < 1) { kind[I(x, y)] = K.WATER; h[I(x, y)] = 0; } else if (d < 1.35 && h[I(x, y)] === 0) kind[I(x, y)] = K.SAND;
+  const m2 = hills[0] || { x: m.x + 14, y: m.y + 12, r: 5 }; W.hill2 = m2; W.hills = hills;
+  // пруды (1–2) с песчаными берегами и камнями-ступеньками
+  W.ponds = [];
+  for (let k = 0, np = 1 + (R() < .45 ? 1 : 0); k < np; k++) {
+    const r = k ? rr(3.5, 5) : rr(5, 6.8), pz = place(r); if (!pz) continue; pz.rx = r; pz.ry = r * rr(.55, .85); const pa = rr(0, 3.14);
+    for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) {
+      const ex = (x - pz.x) * Math.cos(pa) + (y - pz.y) * Math.sin(pa), ey = -(x - pz.x) * Math.sin(pa) + (y - pz.y) * Math.cos(pa);
+      const d = Math.hypot(ex / pz.rx, ey / pz.ry) + (vnoise(x * .5, y * .5, seed + 9 + k) - .5) * .3;
+      if (d < 1 && h[I(x, y)] <= 1) { kind[I(x, y)] = K.WATER; h[I(x, y)] = 0; } else if (d < 1.35 && h[I(x, y)] === 0) kind[I(x, y)] = K.SAND;
+    }
+    for (let i = 0; i < 5; i++) { const x = Math.round(pz.x + rr(-pz.rx * .6, pz.rx * .6)), y = Math.round(pz.y + rr(-pz.ry * .5, pz.ry * .5)); if (kind[I(x, y)] === K.WATER) { h[I(x, y)] = 1; kind[I(x, y)] = K.ROCK; } }
+    W.ponds.push(pz);
   }
-  W.pond = pd;
-  for (let i = 0; i < 6; i++) { const x = Math.round(pd.x + rr(-4, 4)), y = Math.round(pd.y + rr(-2, 2)); if (kind[I(x, y)] === K.WATER) { h[I(x, y)] = 1; kind[I(x, y)] = K.ROCK; } }   // камни-ступеньки
-  // ── песочница (юг-центр)
-  const sb = { x: ri(Math.round(14 * WS), Math.round(18 * WS)), y: ri(Math.round(28 * WS), Math.round(32 * WS)), r: 4.5 };
+  const pd = W.ponds[0] || { x: N * .7, y: N * .3, rx: 5, ry: 4 }; W.pond = pd;
+  // песочница
+  const sb = place(4, 6, true) || { x: N * .4, y: N * .7, r: 4.5 };
   for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) if (Math.hypot(x - sb.x, y - sb.y) + (vnoise(x * .6, y * .6, seed + 2) - .5) < sb.r && h[I(x, y)] === 0 && kind[I(x, y)] !== K.WATER) kind[I(x, y)] = K.SAND;
   W.sandbox = sb;
-  // ── сцена (север-центр): помост на высоте 1
-  const st = { x: ri(Math.round(17 * WS), Math.round(21 * WS)), y: 2, w: 8, d: 3 };
+  // леса (1–2) и роща гигантских деревьев с лианами
+  W.forests = []; for (let k = 0, nf = 1 + (R() < .6 ? 1 : 0); k < nf; k++) { const fz = place(rr(5, 7), 6, true); if (fz) W.forests.push(fz); }
+  // сцена (север): помост на высоте 1
   for (let j = 0; j < st.d; j++) for (let i = 0; i < st.w; i++) { h[I(st.x + i, st.y + j)] = 1; kind[I(st.x + i, st.y + j)] = K.DECK; }
   W.stage = st;
-  // ── мостки между горой и вторым холмом (высота 3)
+  // мостки между горой и ближайшим холмом (высота 3)
   {
     let A = null, B = null, bd = 1e9;
     for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) if (h[I(x, y)] === 3 && Math.hypot(x - m.x, y - m.y) < m.r) for (let y2 = 0; y2 < N; y2++) for (let x2 = 0; x2 < N; x2++) if (h[I(x2, y2)] === 3 && Math.hypot(x2 - m2.x, y2 - m2.y) < m2.r) {
       const d = Math.hypot(x - x2, y - y2); if (d < bd) { bd = d; A = [x, y]; B = [x2, y2]; }
     }
-    if (A) {
+    if (A && bd < 22) {
       const n = Math.max(Math.abs(B[0] - A[0]), Math.abs(B[1] - A[1]));
       for (let i = 0; i <= n; i++) { const x = Math.round(lerp(A[0], B[0], i / n)), y = Math.round(lerp(A[1], B[1], i / n)); if (h[I(x, y)] < 3) { h[I(x, y)] = 3; kind[I(x, y)] = K.DECK; } }
       W.bridge = { A, B };
     }
   }
   // ── ворота и сторожка (восток)
-  const gy = ri(Math.round(17 * WS), Math.round(22 * WS)); W.gate = { x: N - 1, y: gy };
+  W.gate = { x: N - 1, y: gy };
   for (let j = -1; j <= 1; j++) for (let i = 1; i <= 3; i++) { const x = N - i, y = gy + j; if (kind[I(x, y)] === K.GRASS || kind[I(x, y)] === K.DIRT) kind[I(x, y)] = K.DIRT; }
   const hut = { x: N - 8, y: gy + 4 };
   for (let j = 0; j < 3; j++) for (let i = 0; i < 3; i++) { h[I(hut.x + i, hut.y + j)] = 0; kind[I(hut.x + i, hut.y + j)] = K.COBBLE; blocked[I(hut.x + i, hut.y + j)] = 1; }
@@ -94,12 +120,32 @@ function genWorld(seedStr) {
 
   // ── растительность
   const onHill = (x, y) => h[I(x, y)] >= 1 && h[I(x, y)] <= 2;
-  // лес на юго-западе
-  for (let y = Math.round(27 * WS); y < N - 1; y++) for (let x = 1; x < Math.round(15 * WS); x++) {
-    if (R() < .3 && flatFree(x, y) && !(Math.abs(x - W.spawn.x) < 3 && Math.abs(y - W.spawn.y) < 3)) add(R() < .32 ? 'banana_tree' : 'tree', x + .5, y + .5, { bananas: 3, regrow: 0, seed: ri(0, 999), water: 0 });
+  // породы деревьев: в лесу — сосны и дубы, у воды — ивы, на открытых местах — берёзы, акации, баобабы
+  const nearWater = (x, y) => W.ponds.some(p => Math.hypot(x - p.x, y - p.y) < Math.max(p.rx, p.ry) + 3);
+  const species = (x, y, inForest) => { const r = R(); if (inForest) return r < .5 ? 'pine' : r < .85 ? 'oak' : 'birch'; if (nearWater(x, y)) return r < .6 ? 'willow' : 'birch'; return r < .35 ? 'oak' : r < .6 ? 'birch' : r < .85 ? 'acacia' : 'baobab'; };
+  for (const fz of W.forests) for (let y = Math.round(fz.y - fz.r); y <= fz.y + fz.r; y++) for (let x = Math.round(fz.x - fz.r); x <= fz.x + fz.r; x++) {
+    if (!inb(x, y) || Math.hypot(x - fz.x, y - fz.y) + (vnoise(x * .4, y * .4, seed + 23) - .5) * 2 > fz.r) continue;
+    if (R() < .34 && flatFree(x, y) && !(Math.abs(x - W.spawn.x) < 3 && Math.abs(y - W.spawn.y) < 3)) { const ban = R() < .25; add(ban ? 'banana_tree' : 'tree', x + .5, y + .5, { bananas: 3, regrow: 0, seed: ri(0, 999), water: 0, sp: ban ? null : species(x, y, true) }); }
+  }
+  // роща гигантов: огромные кривые деревья с лианами, на которых можно раскачиваться
+  W.vines = [];
+  if (W.grove) {
+    const gz = W.grove, trees = [];
+    for (let i = 0; i < 30 && trees.length < 4; i++) {
+      const a = rr(0, 6.28), d = rr(0, gz.r - 2), x = Math.floor(gz.x + Math.cos(a) * d), y = Math.floor(gz.y + Math.sin(a) * d);
+      if (!flatFree(x, y) || trees.some(t => Math.hypot(t.x - x, t.y - y) < 5)) continue;
+      const t = add('giant_tree', x + .5, y + .5, { seed: ri(0, 999), ht: rr(9, 12), trunkR: .55, twist: rr(0, 6.28) }); trees.push(t);
+      for (let v = 0; v < 3; v++) {
+        const va = t.twist + v * 2.1 + rr(-.3, .3), vd = rr(2.6, 3.6), ax = t.x + Math.cos(va) * vd, ay = t.y + Math.sin(va) * vd;
+        if (ax < 2 || ay < 2 || ax > N - 2 || ay > N - 2) continue;
+        const ah = t.ht * rr(.48, .6);                          // высота крепления (в метрах сцены)
+        W.vines.push({ id: W.vines.length, ax, ay, ah, len: ah - 1.25, tree: t.id });
+      }
+    }
+    W.giants = trees;
   }
   // отдельные деревья и бананы по карте
-  for (let i = 0; i < 32; i++) { const p = findFree((x, y) => (flatFree(x, y) || (onHill(x, y))) && Math.hypot(x - W.spawn.x, y - W.spawn.y) > 4); if (p) add(R() < .45 ? 'banana_tree' : 'tree', p[0] + .5, p[1] + .5, { bananas: 3, regrow: 0, seed: ri(0, 999), water: 0 }); }
+  for (let i = 0; i < 32; i++) { const p = findFree((x, y) => (flatFree(x, y) || (onHill(x, y))) && Math.hypot(x - W.spawn.x, y - W.spawn.y) > 4); if (p) { const ban = R() < .45; add(ban ? 'banana_tree' : 'tree', p[0] + .5, p[1] + .5, { bananas: 3, regrow: 0, seed: ri(0, 999), water: 0, sp: ban ? null : species(p[0], p[1], false) }); } }
   for (let i = 0; i < 36; i++) { const p = findFree((x, y) => flatFree(x, y)); if (p) add('bush', p[0] + .5, p[1] + .5, { seed: ri(0, 99), sticks: R() < .4 ? 2 : 0, berries: R() < .5 ? 2 : 0, regrow: 0 }, false); }
   // ── кокосовые пальмы и питьевые фонтанчики
   for (let i = 0; i < 7; i++) { const p = findFree((x, y) => (kind[I(x, y)] === K.SAND || kind[I(x, y)] === K.GRASS) && flatFree(x, y) && Math.hypot(x - W.spawn.x, y - W.spawn.y) > 3); if (p) add('coco_palm', p[0] + .5, p[1] + .5, { cocos: 2, regrow: 0, seed: ri(0, 999) }); }
@@ -140,6 +186,9 @@ function genWorld(seedStr) {
   for (let i = 0; i < 2; i++) { const p = findFree((x, y) => flatFree(x, y) && neighborsFlat(x, y)); if (p) add('hammock', p[0] + .5, p[1] + .5, { cool: 0 }); }
   for (let i = 0; i < 2; i++) { const p = findFree((x, y) => flatFree(x, y)); if (p) add('logpile', p[0] + .5, p[1] + .5, { logs: 4, regrow: 0 }); }
 
+  W.decorIn = [];
+  for (let i = 0; i < 26; i++) { const p = findFree((x, y) => flatFree(x, y) && kind[I(x, y)] !== K.SAND); if (p) W.decorIn.push({ k: pick3(R, ['flog', 'stump', 'rocks', 'rocks', 'stump']), x: p[0] + rr(.2, .8), y: p[1] + rr(.2, .8), a: rr(0, 6.28), s: ri(0, 99) }); }
+
   const pts = []; for (let i = 0; i < 50 && pts.length < 11; i++) { const p = findFree((x, y) => flatFree(x, y) && neighborsFlat(x, y) && pts.every(q => Math.hypot(q.x - x, q.y - y) > 7)); if (p) pts.push({ x: p[0] + .5, y: p[1] + .5 }); }
   pts.sort((a, b) => Math.atan2(a.y - N / 2, a.x - N / 2) - Math.atan2(b.y - N / 2, b.x - N / 2)); W.wps = pts;
   // ── животные
@@ -164,4 +213,5 @@ function genWorld(seedStr) {
   return W;
 }
 // высота земли в точке (с учётом границ карты)
+function pick3(R, a) { return a[Math.floor(R() * a.length)]; }
 function groundAt(W, x, y) { const tx = Math.floor(x), ty = Math.floor(y); return (tx < 0 || ty < 0 || tx >= W.N || ty >= W.N) ? 0 : W.h[ty * W.N + tx]; }

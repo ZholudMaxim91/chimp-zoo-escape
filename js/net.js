@@ -106,7 +106,7 @@ function buildSnap() {
   const k = G.keeper;
   return {
     t: 's', day: G.day, dayT: Math.round(G.dayT * 10) / 10, gate: G.gateOpen ? 1 : 0, key: G.keyHolder || 0, duel: G.duel, pid: G.pid,
-    pl: livePlayers().map(p => ({ id: p.netId, x: r2(p.me ? p.x : p.x), y: r2(p.y), z: r2(p.z), fx: p.fx, fb: p.fb ? 1 : 0, mv: p.moving ? 1 : 0, sp: p.sprint ? 1 : 0, cr: p.crouch ? 1 : 0, a: p.act ? p.act.type : '', n: p.name, fu: p.fur.id, sc: p.me ? G.score : (p.score || 0), lv: p.me ? lvSum() : (p.lv || 4), hr: p.me ? hoolRank() : (p.hr || 0), hp: p.me ? hoolPts() : (p.hp || 0), sl: p.splat > 0 ? 1 : 0, iv: p.invuln > 0 ? 1 : 0, dp: p.dirtP || 0, db: p.dirtB || 0 })),
+    pl: livePlayers().map(p => ({ id: p.netId, x: r2(p.me ? p.x : p.x), y: r2(p.y), z: r2(p.z), fx: p.fx, fb: p.fb ? 1 : 0, mv: p.moving ? 1 : 0, sp: p.sprint ? 1 : 0, cr: p.crouch ? 1 : 0, a: p.act ? p.act.type + (p.act.prop ? ':' + p.act.prop : '') : '', vn: p.me ? (p.vine ? p.vine.v.id : -1) : (p.vn ?? -1), n: p.name, fu: p.fur.id, sc: p.me ? G.score : (p.score || 0), lv: p.me ? lvSum() : (p.lv || 4), hr: p.me ? hoolRank() : (p.hr || 0), hp: p.me ? hoolPts() : (p.hp || 0), sl: p.splat > 0 ? 1 : 0, iv: p.invuln > 0 ? 1 : 0, dp: p.dirtP || 0, db: p.dirtB || 0 })),
     k: { x: r2(k.x), y: r2(k.y), z: r2(k.z), fx: k.fx, fb: k.fb ? 1 : 0, mv: k.moving ? 1 : 0, st: k.state, dx: r2(k.dx), dy: r2(k.dy), hk: k.hasKey ? 1 : 0, vr: k.visRange },
     n: G.npcs.map(n => { const s = { x: r2(n.x), y: r2(n.y), z: r2(n.z), fx: n.fx, fb: n.fb ? 1 : 0, mv: n.moving ? 1 : 0 }; if (n.sp === 'chimp') Object.assign(s, { b: Math.round(n.bond), f: n.friend ? 1 : 0, w: n.want ? 1 : 0, m: n.mood || 0, bc: Math.round(n.boostCool * 10) / 10, g: n.gang || 0, l: Math.round(n.loyal), a: n.act || 0, c: n.carry ? 1 : 0, h: n.hool || 0 }); else if (n.sp === 'troop') s.fl = n.fleeT > 0 ? 1 : 0; else if (n.sp === 'gorilla') Object.assign(s, { st: n.state, a: n.act || '' }); else if (n.sp === 'parrot') Object.assign(s, { fl: n.flying ? 1 : 0, sy: n.sayT > 0 ? n.say : '' }); return s; }),
     sh: G.shelters.map(s => [s.id, s.x, s.y, Math.round(s.t)]),
@@ -123,7 +123,7 @@ function applySnap(m) {
     seen.add(s.id); if (s.id === NET.id) continue;
     let p = G.players.find(q => q.netId === s.id);
     if (!p) { p = mkRemote(s.id, s.n, s.fu); p.x = p.tx = s.x; p.y = p.ty = s.y; G.players.push(p); }
-    p.tx = s.x; p.ty = s.y; p.tz = s.z; p.fx = s.fx; p.fb = !!s.fb; p.moving = !!s.mv; p.sprint = !!s.sp; p.crouch = !!s.cr; p.act = s.a ? { type: s.a, t: 0, dur: 0 } : null; p.score = s.sc; p.lv = s.lv; p.name = s.n; p.hr = s.hr; p.hp = s.hp; p.splat = s.sl ? 2 : 0; p.invuln = s.iv ? 1 : 0; p.dirtP = s.dp; p.dirtB = s.db;
+    p.tx = s.x; p.ty = s.y; p.tz = s.z; p.fx = s.fx; p.fb = !!s.fb; p.moving = !!s.mv; p.sprint = !!s.sp; p.crouch = !!s.cr; p.act = s.a ? { type: s.a.split(':')[0], prop: s.a.split(':')[1], t: 0, dur: 0 } : null; p.vn = s.vn; p.score = s.sc; p.lv = s.lv; p.name = s.n; p.hr = s.hr; p.hp = s.hp; p.splat = s.sl ? 2 : 0; p.invuln = s.iv ? 1 : 0; p.dirtP = s.dp; p.dirtB = s.db;
   }
   G.players = G.players.filter(p => p.me || seen.has(p.netId));
   // смотритель
@@ -165,7 +165,7 @@ function hostOnMsg(from, m) {
       G.players.push(p); NET.sendTo(from, { t: 'welcome', seed: G.W.seed, you: from, name, fur, objs: allObjDyn(), snap: buildSnap() });
       toast(`${name} присоединился к игре`, 'good'); sfx.ok(); break;
     }
-    case 'p': if (!pl) return; pl.tx = m.x; pl.ty = m.y; pl.tz = m.z; pl.fx = m.fx; pl.fb = !!m.fb; pl.moving = !!m.mv; pl.sprint = !!m.sp; pl.crouch = !!m.cr; pl.act = m.a ? { type: m.a, t: 0, dur: 0 } : null; pl.score = m.sc; pl.lv = m.lv; pl.bn = m.bn; pl.heat = m.ht ? 3 : 0; pl.tween = m.tw ? {} : null; pl.splat = m.spl; pl.invuln = m.iv ? 1 : 0; pl.ch = m.ch; pl.hr = m.hr; pl.hp = m.hp; pl.mud = m.md; pl.dirtP = m.dp; pl.dirtB = m.db; break;
+    case 'p': if (!pl) return; pl.tx = m.x; pl.ty = m.y; pl.tz = m.z; pl.fx = m.fx; pl.fb = !!m.fb; pl.moving = !!m.mv; pl.sprint = !!m.sp; pl.crouch = !!m.cr; pl.act = m.a ? { type: m.a.split(':')[0], prop: m.a.split(':')[1], t: 0, dur: 0 } : null; pl.vn = m.vn; pl.score = m.sc; pl.lv = m.lv; pl.bn = m.bn; pl.heat = m.ht ? 3 : 0; pl.tween = m.tw ? {} : null; pl.splat = m.spl; pl.invuln = m.iv ? 1 : 0; pl.ch = m.ch; pl.hr = m.hr; pl.hp = m.hp; pl.mud = m.md; pl.dirtP = m.dp; pl.dirtB = m.db; break;
     case 'obj': { const o = G.W.objs.find(o => o.id === m.id); if (o) { applyObj(o, m.f); NET.bcast({ t: 'obj', id: m.id, f: m.f }, from); } break; }
     case 'hit': if (pl) hostHit(pl, m.k, m.tk, m.i, { x: m.x, y: m.y, z: m.z }); break;
     case 'sp': addPickup({ ...m.p, age: 0 }); break;
@@ -235,7 +235,7 @@ function netTick(dt) {
   } else {
     NET.accP += dt; if (NET.accP > .07) {
       NET.accP = 0; const p = G.me;
-      NET.send({ t: 'p', x: r2(p.x), y: r2(p.y), z: r2(p.z), fx: p.fx, fb: p.fb ? 1 : 0, mv: p.moving ? 1 : 0, sp: p.sprint ? 1 : 0, cr: p.crouch ? 1 : 0, a: p.act ? p.act.type : '', sc: G.score, lv: lvSum(), bn: G.inv.banana, ht: p.heat > 0 ? 1 : 0, tw: p.tween ? 1 : 0, spl: p.splat > 0 ? 1 : 0, iv: p.invuln > 0 ? 1 : 0, ch: G.st.cha.lv, hr: hoolRank(), hp: hoolPts(), md: G.mudT > 0 ? 1 : 0, dp: p.dirtP || 0, db: p.dirtB || 0 });
+      NET.send({ t: 'p', x: r2(p.x), y: r2(p.y), z: r2(p.z), fx: p.fx, fb: p.fb ? 1 : 0, mv: p.moving ? 1 : 0, sp: p.sprint ? 1 : 0, cr: p.crouch ? 1 : 0, a: p.act ? p.act.type + (p.act.prop ? ':' + p.act.prop : '') : '', sc: G.score, vn: p.vine ? p.vine.v.id : -1, lv: lvSum(), bn: G.inv.banana, ht: p.heat > 0 ? 1 : 0, tw: p.tween ? 1 : 0, spl: p.splat > 0 ? 1 : 0, iv: p.invuln > 0 ? 1 : 0, ch: G.st.cha.lv, hr: hoolRank(), hp: hoolPts(), md: G.mudT > 0 ? 1 : 0, dp: p.dirtP || 0, db: p.dirtB || 0 });
     }
   }
 }
