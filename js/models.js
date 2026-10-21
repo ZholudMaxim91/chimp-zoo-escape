@@ -82,6 +82,7 @@ const FUR = {
   ginger: { id: 'ginger', m: '#7a4424', d: '#4a2410', l: '#a8683c', s: '#d8a682', face: '#ecc4a0' },
   dark: { id: 'dark', m: '#241a14', d: '#120c08', l: '#3e2e22', s: '#a07a5a', face: '#8a6a52' },
   grey: { id: 'grey', m: '#3c3c4a', d: '#22222c', l: '#7a7a90', s: '#4a4a58', face: '#2e2e3a' },
+  monkey: { id: 'monkey', m: '#8a7a5a', d: '#5a4a32', l: '#c0b08a', s: '#3a2e22', face: '#4a3a2c' },
   silver: { id: 'silver', m: '#3a3a44', d: '#1c1c22', l: '#9a9aae', s: '#54545e', face: '#2a2a32' },
 };
 
@@ -123,6 +124,7 @@ function makeApe(F, kind = 'chimp') {
     j['sh' + n] = sh; j['up' + n] = up; j['el' + n] = el; j['hip' + n] = hip; j['th' + n] = th; j['kn' + n] = kn;
   }
   const hold = part(GEO.sph, '#5a3a1a', [0, -.36, .05], [.07, .065, .07]); hold.visible = false; j.elR.children[0].add(hold); j.hold = hold;
+  const holdB = part(GEO.sph, '#ffd23a', [0, -.38, .06], [.035, .035, .12], [.4, 0, 0]); holdB.visible = false; j.elL.children[0].add(holdB); j.holdB = holdB;
   return { root, j, kind };
 }
 // ───────── Человек (смотритель / посетитель) ─────────
@@ -182,7 +184,7 @@ const ZERO_KEYS = ['hips', 'torso', 'neck', 'head', 'shL', 'shR', 'elL', 'elR', 
 function resetPose(j) { for (const k of ZERO_KEYS) if (j[k]) j[k].rotation.set(0, 0, 0); if (j.mouth) j.mouth.scale.y = j.mouth.userData.sy || (j.mouth.userData.sy = j.mouth.scale.y); }
 // st: {move:0|1|2 (стоит/идёт/бежит), crouch, air, act, actP (0..1), t}
 function poseApe(r, st) {
-  const j = r.j, t = st.t; resetPose(j); j.hold.visible = false;
+  const j = r.j, t = st.t; resetPose(j); j.hold.visible = false; j.holdB.visible = !!st.carry; j.body.rotation.z = 0; j.body.position.y = 0;
   let hipsY = .42;
   if (st.move && !st.act) {          // ходьба на костяшках (четвероногая)
     const ph = t * (st.move === 2 ? 12 : 7.5), s = Math.sin(ph), c = Math.cos(ph);
@@ -217,6 +219,10 @@ function poseApe(r, st) {
     const w = Math.sin(t * 11);
     j.torso.rotation.x = .1; j.hips.rotation.y = w * .4; j.shL.rotation.x = -2.4 + w * .6; j.shR.rotation.x = -2.4 - w * .6; j.shL.rotation.z = -.5; j.shR.rotation.z = .5;
     j.mouth.scale.y = j.mouth.userData.sy * 2.5; hipsY = .4 + Math.abs(w) * .08;
+  } else if (a === 'sleep') {
+    j.body.rotation.z = 1.45; j.body.position.y = .12; j.torso.rotation.x = .4; j.neck.rotation.x = .3; j.shL.rotation.x = j.shR.rotation.x = -1.2; j.elL.rotation.x = j.elR.rotation.x = -1.2; j.hipL.rotation.x = j.hipR.rotation.x = -1.3; j.knL.rotation.x = j.knR.rotation.x = 1.6; hipsY = .3; j.torso.scale.y = 1 + Math.sin(t * 1.6) * .03;
+  } else if (a === 'groom') {
+    const w = Math.sin(t * 7); j.torso.rotation.x = .55; j.neck.rotation.x = -.2; j.shL.rotation.x = -1.4 + w * .25; j.shR.rotation.x = -1.4 - w * .25; j.elL.rotation.x = j.elR.rotation.x = -.6; j.hipL.rotation.x = j.hipR.rotation.x = -1.2; j.knL.rotation.x = j.knR.rotation.x = 1.4; hipsY = .28; j.head.rotation.y = w * .2;
   } else if (a === 'pee') {
     j.torso.rotation.x = -.15; j.hips.rotation.x = -.2; j.shL.rotation.x = j.shR.rotation.x = -.3; j.shL.rotation.z = -.3; j.shR.rotation.z = .3; j.hipL.rotation.x = j.hipR.rotation.x = -.1; hipsY = .46; j.neck.rotation.x = -.1;
   } else if (a === 'hoot') {

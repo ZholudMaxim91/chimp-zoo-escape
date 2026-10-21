@@ -19,7 +19,7 @@
   .bar>i{display:block;height:100%;width:0;transition:width .15s}
   #energyBar>i{background:#f08a30}
   #stats{left:8px;top:8px;width:200px}
-  #quests{right:8px;top:8px;width:250px;max-height:calc(100% - 150px);overflow:auto}
+  #quests{right:8px;top:8px;width:250px;max-height:calc(100% - 330px);overflow:auto}
   h3{margin:0 0 6px;font-size:12px;letter-spacing:1px;text-transform:uppercase;color:#a8e040}
   .stat{margin:5px 0}.stat .row{display:flex;justify-content:space-between;font-weight:700}
   .stat .bar{display:block;width:100%;height:8px;margin-top:2px}
@@ -73,6 +73,7 @@
   #profileBox{border:3px solid #8486a0;padding:8px 12px;margin:10px 0;background:#26223e}
   #profileBox input{font-family:inherit;font-size:14px;padding:5px 8px;background:#1b1726;color:#f6f2e2;border:3px solid #8486a0;width:150px}
   #lobbyMsg{min-height:18px;font-size:13px;margin-top:4px;text-align:center}
+  #log div{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   #win{display:none}#win .card{text-align:center}
 </style>
 </head>
@@ -84,7 +85,8 @@
 <div id="invite" class="panel" style="display:none;top:100px;left:50%;transform:translateX(-50%);border-color:#ffd23a;font-weight:700;background:#4a3a10"></div>
 <div class="panel" id="players" style="display:none;left:8px;top:150px;width:200px"></div>
 <div class="overlay" id="lostBox" style="display:none"><div class="card" style="text-align:center"><h1>🔌 Связь потеряна</h1><p>Хост закрыл игру или пропал интернет.</p><div class="row2"><button id="lostBtn">В меню</button></div></div></div>
-<div class="panel" id="stats"><h3>🐵 Характеристики</h3><div id="statRows"></div></div>
+<div class="panel" id="stats"><h3>🐵 Характеристики</h3><div id="statRows"></div><div id="hool" style="margin-top:8px;border-top:2px solid #4a4478;padding-top:6px"></div></div>
+<div class="panel" id="logBox" style="right:8px;bottom:186px;width:250px;font-size:11px;padding:6px 8px"><div id="log"></div></div>
 <div class="panel" id="quests"><h3>📋 Задания</h3><div id="qList"></div><h3 style="margin-top:8px">🏆 Достижения</h3><div id="ach"></div><div style="margin-top:6px"><button class="sm ghost" id="copySeed">📋 Скопировать сид</button></div></div>
 <div id="hotbar"></div>
 <div class="panel" id="minimapBox"><canvas id="minimap" width="80" height="80"></canvas></div>
@@ -138,6 +140,7 @@
 <script src="js/net.js"></script>
 <script src="js/profile.js"></script>
 <script src="js/audio.js"></script>
+<script src="js/society.js"></script>
 <script src="js/game.js"></script>
 </body>
 </html>

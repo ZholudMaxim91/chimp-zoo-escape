@@ -133,7 +133,8 @@ function genWorld(seedStr) {
   // ── животные
   const spot = (cx, cy, rad) => nearFree(cx, cy, rad) || [Math.floor(W.spawn.x) + 2, Math.floor(W.spawn.y)];
   const fur = ['brown', 'dark', 'ginger'];
-  for (let i = 0; i < 3; i++) { const p = spot(N * .5 + rr(-5, 5), N * .55 + rr(-4, 4), 7); W.npcSpawns.push({ sp: 'chimp', x: p[0] + .5, y: p[1] + .5, fur: fur[i], name: ['Чита', 'Бобо', 'Мими'][i] }); }
+  for (let i = 0; i < 7; i++) { const p = spot(N * .5 + rr(-9, 9), N * .55 + rr(-7, 7), 10); W.npcSpawns.push({ sp: 'chimp', x: p[0] + .5, y: p[1] + .5, fur: fur[i % 3], name: ['Чита', 'Бобо', 'Мими', 'Гоша', 'Луна', 'Кузя', 'Тоша'][i] }); }
+  { const p = spot(N * .6, N * .4, 8); W.npcSpawns.push({ sp: 'troop', x: p[0] + .5, y: p[1] + .5 }); }
   { const p = spot(m2.x - 6, m2.y, 5); W.npcSpawns.push({ sp: 'gorilla', x: p[0] + .5, y: p[1] + .5 }); }
   for (let i = 0; i < 2; i++) { const p = spot(N * .5 + rr(-9, 9), N * .5 + rr(-3, 9), 10); W.npcSpawns.push({ sp: 'tortoise', x: p[0] + .5, y: p[1] + .5 }); }
   for (let i = 0; i < 3; i++) W.npcSpawns.push({ sp: 'parrot', x: rr(6, N - 6), y: rr(6, N - 6), col: [PAL.red, PAL.blue, PAL.lime][i] });

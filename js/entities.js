@@ -172,6 +172,8 @@ function updateKeeper(k, dt) {
   } else if (k.state === 'suspicious') {
     if (k.target && goTo(k, k.target.x, k.target.y, dt, 2.5)) { k.moving = false; k.lookT += dt; const a = Math.atan2(k.dy, k.dx) + dt * 2.2; setFacing(k, Math.cos(a), Math.sin(a)); if (k.lookT > 2.6) { k.state = 'patrol'; k.target = null; let b = 0, bd = 1e9; W.wps.forEach((w, i) => { const d = Math.hypot(w.x - k.x, w.y - k.y); if (d < bd) { bd = d; b = i; } }); k.wp = b; k.wait = .5; } }
     else if (!k.target) k.state = 'patrol';
+  } else if (k.state === 'feed' || k.state === 'escort') { keeperRoutine(k, dt);
+  } else if (k.state === 'patrol' && keeperRoutine(k, dt)) {
   } else if (k.state === 'patrol') {
     if (k.wait > 0) { k.wait -= dt; k.moving = false; const a = Math.atan2(k.dy, k.dx) + Math.sin(G.t * .9) * dt * .8; setFacing(k, Math.cos(a), Math.sin(a)); }
     else { const w = W.wps[k.wp]; if (!w) return; const px = k.x, py = k.y; if (goTo(k, w.x, w.y, dt, k.speedP)) { k.wp = (k.wp + 1) % W.wps.length; k.wait = rnd(1, 2.5); } k.stuck = Math.abs(k.x - px) + Math.abs(k.y - py) < .001 ? (k.stuck || 0) + dt : 0; if (k.stuck > 1) { k.wp = (k.wp + 1) % W.wps.length; k.stuck = 0; } }
@@ -209,9 +211,10 @@ function caught(k, p) {
 
 // ───────── Животные (считает хост) ─────────
 function newNpc(sp, W) {
+  if (sp.sp === 'troop') { const t = newTroop({ spawnTroop: sp }); t.z = t.rz = t.nz = groundAt(W, sp.x, sp.y); return t; }
   const z = groundAt(W, sp.x, sp.y);
   const n = mk({ sp: sp.sp, x: sp.x, y: sp.y, z, rz: z, hx: sp.x, hy: sp.y, nx: sp.x, ny: sp.y, nz: z, name: sp.name, wait: rnd(0, 2) });
-  if (sp.sp === 'chimp') Object.assign(n, { fur: { brown: FUR.brown, dark: FUR.dark, ginger: FUR.ginger }[sp.fur] || FUR.brown, bond: 0, fleeT: 0, want: false, boostCool: 0, friend: false });
+  if (sp.sp === 'chimp') Object.assign(n, { fur: { brown: FUR.brown, dark: FUR.dark, ginger: FUR.ginger }[sp.fur] || FUR.brown, bond: 0, fleeT: 0, want: false, boostCool: 0, friend: false, gang: null, loyal: 0, act: null, actT: 0, queue: [] });
   if (sp.sp === 'gorilla') Object.assign(n, { state: 'idle', full: 0, rage: 0, eatT: 0, pushCool: 0, pacified: 0 });
   if (sp.sp === 'parrot') Object.assign(n, { col: sp.col, flying: true, z: 5, rz: 5, tx: sp.x, ty: sp.y, perch: 0, fleeT: 0, say: '', sayT: 0, tz: 5 });
   if (sp.sp === 'tortoise') Object.assign(n, { bounceCool: 0 });
@@ -221,7 +224,8 @@ function updateNpcs(dt) {
   for (const n of G.npcs) {
     n.t += dt;
     if (n.boostCool > 0) n.boostCool -= dt;
-    if (n.sp === 'chimp') aiChimp(n, dt);
+    if (n.sp === 'chimp') aiChimp2(n, dt);
+    else if (n.sp === 'troop') aiTroop(n, dt);
     else if (n.sp === 'gorilla') aiGorilla(n, dt);
     else if (n.sp === 'parrot') aiParrot(n, dt);
     else if (n.sp === 'tortoise') aiTortoise(n, dt);
@@ -319,6 +323,7 @@ function newVisitors(W) {   // внешний вид — из сида, чтоб
       x: v.x, y: v.y, side: v.side, on, a: on ? 1 : 0, next: 5 + R() * 13, ph: R() * 6, fl: i % 2 === 0, splat: 0, cheer: 0, emo: null,
       col: pk([P_.red, P_.blue, P_.yel2, P_.pur, P_.teal, P_.org, P_.pink]), pants: pk(['#35465e', '#4a3a2a', '#2a2a30', '#5a4a6a']), hair: pk(['#3a2a1a', '#c9a24a', '#222', '#8a3a1a']),
       hat: pk([0, 1, 2, 2]), kid: R() < .25, skin: pk([P_.sk0, P_.sk1, '#8a5a3a', '#f2c9a0']),
+      kind: (r => r < .08 ? 'brave' : r < .28 ? 'bully' : r < .63 ? 'coward' : 'normal')(R()),
     };
   });
 }
@@ -333,6 +338,7 @@ function updateVisitors(dt) {   // хост
   for (const v of G.vis) { if (!open) { v.on = false; v.next = rnd(1, 6); continue; } v.next -= dt; if (v.next <= 0) { v.on = !v.on; v.next = rnd(8, 22); } }
   if (!open) return;
   G.peanutT -= dt; if (G.peanutT <= 0) { G.peanutT = rnd(7, 12); visitorToss('peanut'); }
+  visitorMood(dt);
 }
 function visitorToss(type, from) {   // хост
   const act = G.vis.filter(v => v.on && v.a > .8); if (!act.length || G.pickups.length > 14) return;
@@ -401,6 +407,11 @@ function solveThrow(p, tgt, maxRIn) {
   const T = clamp(d * .075 + .35, .4, 1.4) * clamp(1 - .07 * (G.st.str.lv - 1), .7, 1) / (G.boostT > 0 ? 1.25 : 1), zt = (k < 1 ? groundAt(G.W, o.x + dx * k, o.y + dy * k) : tgt.z) + .6;
   return { vx: dx * k / T, vy: dy * k / T, vz: (zt - o.z + .5 * GP * T * T) / T, T };
 }
+function solveFrom(o, tgt, maxR = 12) {
+  const dx = tgt.x - o.x, dy = tgt.y - o.y; let d = Math.hypot(dx, dy), k = 1; if (d > maxR) k = maxR / d; d *= k;
+  const T = clamp(d * .075 + .35, .4, 1.4), zt = (tgt.z || 0) + .6;
+  return { vx: dx * k / T, vy: dy * k / T, vz: (zt - o.z + .5 * GP * T * T) / T, T };
+}
 function throwPos(p, s, t) { const o = launchPoint(p); return { x: o.x + s.vx * t, y: o.y + s.vy * t, z: o.z + s.vz * t - .5 * GP * t * t }; }
 function spawnProj(kind, p, sol, visual = false, from) { const o = from || launchPoint(p); G.proj.push({ kind, x: o.x, y: o.y, z: o.z, vx: sol.vx, vy: sol.vy, vz: sol.vz, t: 0, owner: p, px: o.x, py: o.y, visual }); }
 function updateProj(dt) {
@@ -422,7 +433,7 @@ function updateProj(dt) {
 }
 function projLand(q, wall) {
   const gz = groundAt(G.W, q.x, q.y), x = q.x, y = q.y;
-  if (q.kind === 'poop') { SND.splat({ x, y }); G.splats.push({ x, y, z: gz, t: 0 }); emit(x, y, gz, 6, { col: [P_.d0, P_.d1], spread: 1.4, v0: 1, v1: 3, life: .5 }); if (!wall) { G.combo = 0; floater(x, y, gz + 1, 'мимо', P_.d3); } }
+  if (q.kind === 'poop') { SND.splat({ x, y }); G.splats.push({ x, y, z: gz, t: 0 }); emit(x, y, gz, 6, { col: [P_.d0, P_.d1], spread: 1.4, v0: 1, v1: 3, life: .5 }); if (!wall && !q.gang && (!q.owner || q.owner.me)) { G.combo = 0; floater(x, y, gz + 1, 'мимо', P_.d3); } }
   else if (q.kind === 'banana') { addPickup({ type: 'banana', x, y, z: gz, age: 0 }); emit(x, y, gz, 3, { col: P_.yel, spread: .8, v0: .5, v1: 2 }); }
   else if (q.kind === 'stone') { addPickup({ type: 'stone', x, y, z: gz, age: 0 }); emit(x, y, gz, 5, { kind: 'dust', spread: 1, v0: .5, v1: 1.5, g: 0, life: .4 }); sfx.hit(); netNoise(x, y, 6, 'камень'); }
   else if (q.kind === 'water') { emit(x, y, gz, 4, { col: P_.w3, spread: 1.2, v0: 1, v1: 3, life: .4 }); }
@@ -436,8 +447,9 @@ function projHit(q) {
   if (q.kind === 'mega') return false;      // мега-снаряд взрывается только при падении
   const z = q.z, hitR = q.kind === 'water' || q.kind === 'pee' ? .9 : .7;
   for (let i = 0; i < G.vis.length; i++) { const v = G.vis[i]; if (v.a < .5 || !v.on) continue; if (Math.hypot(v.x - q.x, v.y - q.y) < hitR && z > -.2 && z < 3.6) return dispatchHit(q, 'v', i); }
-  for (let i = 0; i < G.npcs.length; i++) { const n = G.npcs[i]; if (Math.hypot(n.x - q.x, n.y - q.y) < (n.sp === 'gorilla' ? 1 : .75) && z > n.z - .3 && z < n.z + (n.sp === 'gorilla' ? 4 : n.sp === 'tortoise' ? 1.5 : 3.2)) return dispatchHit(q, 'n', i); }
+  for (let i = 0; i < G.npcs.length; i++) { const n = G.npcs[i]; if (n === q.src) continue; if (Math.hypot(n.x - q.x, n.y - q.y) < (n.sp === 'gorilla' ? 1 : .75) && z > n.z - .3 && z < n.z + (n.sp === 'gorilla' ? 4 : n.sp === 'tortoise' ? 1.5 : 3.2)) return dispatchHit(q, 'n', i); }
   if (q.kind === 'poop' || q.kind === 'pee') for (const p of livePlayers()) { if (p === q.owner || p.invuln > 0) continue; if (Math.hypot(p.x - q.x, p.y - q.y) < .7 && z > p.z - .3 && z < p.z + 3.6) return dispatchHit(q, 'p', p.netId); }
+  for (const it of G.intruders) if (it.state === 'wander' && Math.hypot(it.x - q.x, it.y - q.y) < .8 && z > it.z - .3 && z < it.z + 4.4) return dispatchHit(q, 'i', it.id);
   const k = G.keeper; if (k && Math.hypot(k.x - q.x, k.y - q.y) < .8 && z > k.z - .3 && z < k.z + 4.4) return dispatchHit(q, 'k', 0);
   for (const o of G.W.objs) if (o.type === 'gong' && Math.hypot(o.x - q.x, o.y - q.y) < 1 && z > 0 && z < 4) { ringGong(o); G.cnt.gongs++; return projLand(q, true); }
   return false;
@@ -452,12 +464,13 @@ function hostHit(by, kind, tk, idx, q) {
   if (tk === 'v' && G.vis[idx]) hitVisitor(by, kind, G.vis[idx], q);
   else if (tk === 'n' && G.npcs[idx]) hitNpc(by, kind, G.npcs[idx], q);
   else if (tk === 'k') hitKeeper(by, kind, q);
+  else if (tk === 'i') hitIntruder(by, kind, G.intruders.find(i => i.id === idx));
   else if (tk === 'p') hitPlayer(by, kind, livePlayers().find(p => p.netId === idx), q);
 }
 function hitVisitor(by, kind, v, q) {
   if (kind === 'poop') {
     let r = rnd(0, 100), fi = 0; for (let i = 0; i < HIT_FX.length; i++) { r -= HIT_FX[i][0]; if (r <= 0) { fi = i; break; } }
-    v.splat = 30; v.emo = { t: 2, s: HIT_FX[fi][1] }; if (fi === 3) { v.on = false; v.next = 40; }
+    v.splat = 30; v.emo = { t: 2, s: HIT_FX[fi][1] }; if (v.kind !== 'brave' && (fi === 3 || (v.kind === 'coward' && Math.random() < .8))) { v.on = false; v.next = 40; }
     emit(v.x, v.y, 2, 12, { col: [P_.d0, P_.d1, P_.d2], spread: 1.6, v0: 1, v1: 4, life: .8 });
     for (const o of G.vis) if (o !== v && o.on && Math.hypot(o.x - v.x, o.y - v.y) < 3 && Math.random() < .45) { o.on = false; o.next = rnd(15, 30); o.emo = { t: 1.8, s: ';(' }; }
     noiseAt(by.x, by.y, 3, 'бросок');
@@ -466,7 +479,7 @@ function hitVisitor(by, kind, v, q) {
     v.emo = { t: 2, s: 'Ой!' }; v.cheer = 2; addPickup({ type: 'banana', x: clamp(q.x, 1, N - 1), y: clamp(q.y, 1, N - 1), z: 0, age: 0 });
     reward(by, { score: 5, fl: [v.x, v.y, 3, '+5', P_.yel] });
   } else if (kind === 'stone') {
-    v.emo = { t: 2, s: 'АЙ!' }; v.on = Math.random() < .5; noiseAt(v.x, v.y, 5, 'крик');
+    v.emo = { t: 2, s: 'АЙ!' }; v.on = v.kind === 'brave' || (v.kind !== 'coward' && Math.random() < .5); noiseAt(v.x, v.y, 5, 'крик');
     reward(by, { score: 12, cnt: { hits: 1 }, heat: 5, fl: [v.x, v.y, 3, '+12 камнем', P_.r3] });
   } else if (kind === 'pee') {
     if ((v.peeT || 0) > G.t) return; v.peeT = G.t + 1.2;
@@ -480,13 +493,15 @@ function hitVisitor(by, kind, v, q) {
 function hitNpc(by, kind, n, q) {
   if (n.sp === 'chimp') {
     if (kind === 'banana') { n.bond = Math.min(100, n.bond + 30); n.mood = 'happy'; n.moodT = 2.5; reward(by, { fl: [n.x, n.y, n.z + 1, '+дружба', P_.pink] }); checkBond(n, by); }
-    else if (kind === 'poop' || kind === 'stone') { n.fleeT = 5; n.bond = Math.max(0, n.bond - 25); if (n.bond < 50) n.friend = false; reward(by, { fl: [n.x, n.y, n.z + 1, 'обиделся', P_.red], sfx: 'bad' }); }
+    else if (kind === 'poop' || kind === 'stone') { if (n.gang) n.loyal -= 35; n.fleeT = n.gang ? 1.5 : 5; n.bond = Math.max(0, n.bond - 25); if (n.bond < 50) n.friend = false; reward(by, { fl: [n.x, n.y, n.z + 1, 'обиделся', P_.red], sfx: 'bad' }); }
     else if (kind === 'water' || kind === 'pee') n.fleeT = kind === 'pee' ? 4 : 2;
   } else if (n.sp === 'gorilla') {
     if (kind === 'banana') { n.state = 'eat'; n.eatT = 4; n.full = 22; reward(by, { cnt: { decoy: 1 }, fl: [n.x, n.y, n.z + 2, 'ням! (накормлен)', P_.yel] }); }
     else { n.rage = 8; n.state = 'chase'; SND.gorilla(n); if (kind === 'poop') reward(by, { score: 10, toast: ['Ты попал в гориллу — она в ярости!', 'bad'], fl: [n.x, n.y, n.z + 3, 'РРР!', P_.red] }); }
   } else if (n.sp === 'parrot') {
     if (kind === 'stone' || kind === 'poop') { n.fleeT = 8; n.perch = 0; addPickup({ type: 'coin', x: n.x, y: n.y, z: groundAt(G.W, n.x, n.y), fly: { sx: n.x, sy: n.y, t: 0, fl: .6 }, age: 0 }); n.say = 'Ай!'; n.sayT = 2; reward(by, { score: 15, cnt: { parrots: 1 }, sfx: 'ok', fl: [n.x, n.y, n.z, 'уронил монету!', P_.yel] }); }
+  } else if (n.sp === 'troop') {
+    if (kind !== 'banana') { n.fleeT = 5; SND.monkey(n); reward(by, { score: 8, cnt: { troopHits: 1 }, fl: [n.x, n.y, n.z + 2, 'мартышки врассыпную!', P_.org] }); }
   } else if (n.sp === 'tortoise') {
     if (kind !== 'banana') addPickup({ type: kind === 'stone' ? 'stone' : 'peanut', x: n.x, y: n.y, z: n.z, age: 0 });
   }
@@ -516,7 +531,7 @@ function netScream(x, y) { if (isHost()) hostScream(G.me, x, y); else NET.send({
 function hostScream(by, x, y) {
   const k = G.keeper; if (k && k.state !== 'chase' && k.state !== 'stunned') { alertKeeper(k, x, y, 'крик'); k.state = 'suspicious'; k.target = { x, y }; }
   let scared = 0;
-  for (const v of G.vis) if (v.on && Math.hypot(v.x - x, v.y - y) < 15) { v.emo = { t: 2.2, s: v.kid ? 'УААА!' : 'ААА!' }; if (Math.random() < .55) { v.on = false; v.next = rnd(20, 40); } scared++; }
+  for (const v of G.vis) if (v.on && Math.hypot(v.x - x, v.y - y) < 15) { v.emo = { t: 2.2, s: v.kid ? 'УААА!' : v.kind === 'brave' ? 'ХА!' : 'ААА!' }; if (v.kind !== 'brave' && (v.kind === 'coward' || Math.random() < .55)) { v.on = false; v.next = rnd(20, 40); } scared++; }
   for (const n of G.npcs) { const d = Math.hypot(n.x - x, n.y - y); if (n.sp === 'chimp' && d < 10) n.fleeT = 4; if (n.sp === 'parrot' && d < 12) { n.fleeT = 5; n.perch = 0; } if (n.sp === 'gorilla' && d < 9 && n.pacified <= 0) n.rage = 5; }
   reward(by, { score: scared * 2, cnt: { scared, screams: 1 } });
 }

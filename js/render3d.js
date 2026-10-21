@@ -400,6 +400,8 @@ function rigFor(e, kind) {
   if (!r) {
     if (kind === 'player') r = makeApe(e.fur || FUR.brown);
     else if (kind === 'chimp') r = makeApe(e.fur || FUR.brown);
+    else if (kind === 'troop') { r = { root: new T3.Group(), j: {}, subs: [] }; for (let i = 0; i < 5; i++) { const m = makeApe(FUR.monkey, 'monkey'); r.subs.push(m); r.root.add(m.root); } }
+    else if (kind === 'intruder') { const v = G.vis[e.from] || {}; r = makeHuman({ shirt: v.col || '#d24a34', pants: v.pants || '#35465e', hair: v.hair || '#222', skin: v.skin || '#f0c8a0', shoes: '#e8e8e8', hat: 'sun', phone: true }); }
     else if (kind === 'gorilla') r = makeApe(FUR.silver, 'gorilla');
     else if (kind === 'parrot') r = makeParrot(e.col || '#d24a34');
     else if (kind === 'tortoise') r = makeTortoise();
@@ -440,8 +442,9 @@ function syncCreatures() {
     const r = rigFor(n, n.sp), mv = moveAngle(r, n), t = tq(T, r.seed);
     if (n.sp === 'parrot') { poseParrot(r, { t, fly: n.flying }); placeRig(r, n, n.rz, mv); continue; }
     if (n.sp === 'tortoise') { poseTortoise(r, { t, move: n.moving }); placeRig(r, n, visY(n), mv); continue; }
-    const act = n.sp === 'gorilla' ? (n.state === 'eat' ? 'eat' : n.state === 'chase' ? 'angry' : n.act) : (n.fleeT > 0 ? null : n.mood === 'happy' ? 'happy' : null);
-    poseApe(r, { t, move: n.moving ? (n.state === 'chase' || n.fleeT > 0 ? 2 : 1) : 0, act });
+    if (n.sp === 'troop') { syncTroop(n, r, t); continue; }
+    const act = n.sp === 'gorilla' ? (n.state === 'eat' ? 'eat' : n.state === 'chase' ? 'angry' : n.act) : (n.fleeT > 0 ? null : n.act ? (n.act === 'show' ? 'show' : n.act) : n.mood === 'happy' ? 'happy' : null);
+    poseApe(r, { t, move: n.moving ? (n.state === 'chase' || n.fleeT > 0 || n.gang ? 2 : 1) : 0, act, carry: n.carry });
     placeRig(r, n, visY(n), mv);
   }
   const k = G.keeper;
@@ -452,6 +455,7 @@ function syncCreatures() {
     const km = r.j.torso.children.find(c => c.geometry === GEO.box && c.material.color.getHexString() === 'ffd23a'); if (km) km.visible = k.hasKey;
     if (KCONE) { const range = k.visRange || 8.5; KCONE.visible = k.state !== 'stunned' && k.state !== 'sleep' && k.state !== 'tohut'; KCONE.scale.set(range, range, 1); KCONE.position.set(k.x, groundSmooth(k.x, k.y) * LV + .04, k.y); KCONE.rotation.z = -Math.atan2(k.dy, k.dx); KCONE.material.color.set(k.state === 'chase' ? '#ff4030' : k.state === 'suspicious' ? '#ffb020' : '#ffe680'); KCONE.material.opacity = k.state === 'chase' ? .24 : .13; }
   }
+  for (const it of G.intruders) { const r = rigFor(it, 'intruder'), mv = moveAngle(r, it); poseHuman(r, { t: tq(T, r.seed), move: it.moving || it.state !== 'wander' ? (it.state === 'flee' ? 2 : 1) : 0, act: it.state === 'flee' ? 'scared' : it.act }); placeRig(r, it, visY(it), mv); }
   for (const v of G.vis) {
     const r = rigFor(v, 'visitor'); r.root.visible = v.a > .5;
     if (!r.root.visible) continue;
@@ -460,6 +464,17 @@ function syncCreatures() {
     placeRig(r, v, 0, Math.atan2(N / 2 - v.x, N / 2 - v.y));
   }
   for (const [e, r] of RIGS) if (!r.alive) { scene.remove(r.root); RIGS.delete(e); }
+}
+// стая мартышек: пять маленьких обезьян вокруг центра стаи
+function syncTroop(n, r, t) {
+  const spread = n.fleeT > 0 ? 2.2 : .75;
+  r.subs.forEach((m, i) => {
+    const a = i * 1.26 + Math.sin(t * .7 + i) * .4, ox = Math.cos(a) * spread * (.6 + (i % 2) * .4), oy = Math.sin(a) * spread * (.6 + (i % 2) * .4);
+    const x = n.x + ox, y = n.y + oy;
+    poseApe(m, { t: t + i * .37, move: n.moving || n.fleeT > 0 ? 2 : 0, act: !n.moving && Math.sin(t * 2 + i) > .7 ? 'happy' : null });
+    m.root.position.set(ox, (groundSmooth(x, y) - groundSmooth(n.x, n.y)) * LV + Math.abs(Math.sin(t * 9 + i)) * (n.moving ? .06 : 0), oy); m.root.rotation.y = Math.round((r.ang + Math.sin(i) * .6) / STEP16) * STEP16 - r.ang;
+  });
+  placeRig(r, n, visY(n), moveAngle(r, n));
 }
 // пятна грязи на шерсти (коричневые — говно, белые — попугаи)
 function showDirt(r, dp, db) {
@@ -541,12 +556,15 @@ function drawOverlay() {
   }
   for (const n of G.npcs) {
     const y = n.sp === 'parrot' ? n.rz : visY(n), s = project(n.x, y + (n.sp === 'gorilla' ? 4.2 : n.sp === 'parrot' ? 1 : 3), n.y);
-    if (n.sp === 'chimp' && n.bond >= 50) pxText(g, '♥', s.x, s.y, P_.pink, 8);
+    if (n.sp === 'chimp' && n.gang) { pxText(g, (n.gang === NET.id ? '⚔ ' : '') + n.name, s.x, s.y, n.gang === NET.id ? P_.org : P_.grey, 7); if (n.gang === NET.id) { rect(g, s.x - 8, s.y + 2, 16, 3, P_.ink); rect(g, s.x - 7, s.y + 3, 14 * clamp(n.loyal / 100, 0, 1), 1, n.loyal < 30 ? P_.red : P_.lime); } }
+    else if (n.sp === 'chimp' && n.act === 'sleep') pxText(g, 'z', s.x + Math.sin(T * 2 + n.hx) * 2, s.y - (T * 4 % 4), P_.white, 7);
+    else if (n.sp === 'chimp' && n.bond >= 50) pxText(g, '♥', s.x, s.y, P_.pink, 8);
     else if (n.sp === 'chimp' && n.want && Math.floor(T * 2) % 2) pxText(g, '?', s.x, s.y, P_.yel, 8);
     if (n.sp === 'gorilla' && n.state === 'chase') pxText(g, '!', s.x, s.y, P_.red, 10);
     if (n.sp === 'parrot' && n.say && n.sayT > 0) pxText(g, n.say, s.x, s.y, P_.white, 7);
   }
   const k = G.keeper; if (k) { const s = project(k.x, visY(k) + 4.4, k.y); if (k.state === 'chase') pxText(g, '!', s.x, s.y, P_.red, 11); else if (k.state === 'suspicious') pxText(g, '?', s.x, s.y, P_.yel, 11); else if (k.state === 'stunned') pxText(g, '*', s.x, s.y, P_.yel, 11); else if (k.state === 'sleep') pxText(g, 'Zz', s.x + Math.sin(T * 2) * 3, s.y - (T * 6 % 6), P_.white, 9); }
+  for (const it of G.intruders) { const s = project(it.x, visY(it) + 4.4, it.y); if (it.state === 'wander') pxText(g, '🧗'.length ? 'ВЫГНАТЬ!' : '', s.x, s.y, P_.red, 7); if (it.emo) pxText(g, it.emo.s, s.x, s.y - 9, P_.white, 8); }
   for (const v of G.vis) if (v.emo && v.a > .5) { const s = project(v.x, 4.2, v.y); g.globalAlpha = Math.min(1, v.emo.t); pxText(g, v.emo.s, s.x, s.y - (2 - v.emo.t) * 5, P_.white, 8); g.globalAlpha = 1; }
   for (const o of G.W.objs) if (o.type === 'dig' && !o.dug && G.me && Math.hypot(G.me.x - o.x, G.me.y - o.y) < 4.5 && Math.floor(T * 2.5) % 2) { const s = project(o.x, groundSmooth(o.x, o.y) + .3, o.y); rect(g, s.x, s.y - 3, 1, 1, P_.yel); rect(g, s.x - 1, s.y - 2, 3, 1, P_.white); rect(g, s.x, s.y - 1, 1, 1, P_.yel); }
   if (G.gateOpen && Math.floor(T * 3) % 2) { const s = project(N + 1.5, 4, G.W.gate.y + .5); pxText(g, '> БЕГИ! >', s.x, s.y, P_.yel, 8); }

@@ -15,7 +15,7 @@ function resetState() {
     st: { str: { lv: 1, xp: 0 }, agi: { lv: 1, xp: 0 }, int: { lv: 1, xp: 0 }, cha: { lv: 1, xp: 0 } },
     inv: { banana: 0, nut: 0, stone: 2, stick: 0, poop: 3, coin: 0, water: 0, coconut: 0 }, bladder: 10, diarrheaT: 0, eatLog: [], peeT: 0, trailT: 0,
     cnt: { banana: 0, peanut: 0, nuts: 0, fish: 0, dig: 0, treasure: 0, puzzle: 0, show: 0, drums: 0, hits: 0, viral: 0, bestCombo: 0, bestShow: 0, stolen: 0, friends: 0, decoy: 0, slips: 0, gongs: 0,
-      squirts: 0, parrots: 0, summit: 0, vines: 0, jumps: 0, bounces: 0, ladders: 0, sprintT: 0, pacify: 0, locker: 0, throws: 0, shakes: 0, duels: 0, pHits: 0, washes: 0, pees: 0, cocos: 0, megas: 0, scared: 0, screams: 0, diarrhea: 0 },
+      squirts: 0, parrots: 0, summit: 0, vines: 0, jumps: 0, bounces: 0, ladders: 0, sprintT: 0, pacify: 0, locker: 0, throws: 0, shakes: 0, duels: 0, pHits: 0, washes: 0, pees: 0, cocos: 0, megas: 0, scared: 0, screams: 0, diarrhea: 0, troopHits: 0, intruders: 0, gangHits: 0, whips: 0, recruits: 0 }, intruders: [], lastRank: 0,
     pickups: [], proj: [], parts: [], floaters: [], splats: [],
   });
   QUESTS.forEach(q => q.done = false); ACHS.forEach(a => a.on = false);
@@ -57,6 +57,7 @@ const ACHS = [
 
 // ───────── Помощники ─────────
 function toast(text, cls = '') {
+  if (typeof logEv === 'function') logEv(cls === 'good' ? '✅' : cls === 'bad' ? '⚠' : '•', text);
   const d = document.createElement('div'); d.className = 'toast ' + cls; d.textContent = text; $('toasts').appendChild(d);
   setTimeout(() => d.remove(), 3400); while ($('toasts').children.length > 4) $('toasts').firstChild.remove();
 }
@@ -183,6 +184,13 @@ function describe(t) {
       if (lvSum() < NEED_SUM) return { text: `Ты ещё слабоват: уровни ${lvSum()}/${NEED_SUM}`, bad: true };
       return { text: 'Открыть ворота и бежать!', run: () => { G.gateOpen = true; if (!isHost()) NET.send({ t: 'gate' }); sfx.up(); toast('Ворота открыты — БЕГИ!', 'good'); } };
     case 'chimp':
+      if (o.gang === me.netId) {
+        if (G.inv.banana > 0) return { text: `Бандит ${o.name}: угостить бананом (лояльность ${Math.round(o.loyal)}% → +40)`, run: () => startAct('eat', .5, () => { G.inv.banana--; if (isHost()) o.loyal = Math.min(100, o.loyal + 40); else NET.send({ t: 'npc', op: 'feedGang', i: G.npcs.indexOf(o) }); o.mood = 'happy'; floater(o.x, o.y, o.z + 3, 'лояльность +40', P_.pink); logEv('🍌', `Ты подкормил бандита ${o.name}`); sfx.ok(); }) };
+        return { text: `Бандит ${o.name} (лояльность ${Math.round(o.loyal)}%) — нужен банан`, bad: true };
+      }
+      if (o.gang) return { text: `${o.name} — в чужой банде`, bad: true };
+      if (o.friend && gangOf(me.netId).length < hoolRank()) return { text: `⚔ Позвать ${o.name} в банду (${gangOf(me.netId).length + 1}/${hoolRank()})`, run: () => startAct('hoot', .6, () => { if (isHost()) hostRecruit(me, o); else NET.send({ t: 'npc', op: 'recruit', i: G.npcs.indexOf(o) }); G.cnt.recruits++; }) };
+      if (o.friend && hoolRank() === 0 && !o.boostCool) return { text: `${o.name}: подсадка (банду можно собрать со звания «Шалун»)`, run: () => { o.boostCool = 2.5; if (!isHost()) NET.send({ t: 'npc', op: 'boost', i: G.npcs.indexOf(o) }); me.vz = 11.2; me.grounded = false; sfx.jump(); } };
       if (o.friend) { if (o.boostCool > 0) return { text: 'Друг устал', bad: true }; return { text: `${o.name}: подсадка (прыжок выше)`, run: () => { o.boostCool = 2.5; if (!isHost()) NET.send({ t: 'npc', op: 'boost', i: G.npcs.indexOf(o) }); me.vz = 11.2; me.grounded = false; sfx.jump(); floater(o.x, o.y, o.z + 3, 'ХОП!', P_.pink); } }; }
       if (G.inv.banana > 0) return { text: `Угостить ${o.name} бананом (дружба ${Math.round(o.bond)}%)`, run: () => startAct('eat', .5, () => { G.inv.banana--; if (isHost()) { o.bond = Math.min(100, o.bond + 30); o.mood = 'happy'; o.moodT = 2; checkBond(o, me); } else NET.send({ t: 'npc', op: 'give', i: G.npcs.indexOf(o) }); floater(o.x, o.y, o.z + 3, '+дружба', P_.pink); sfx.ok(); }) };
       return { text: `${o.name} хочет бананов (дружба ${Math.round(o.bond)}%)`, bad: true };
@@ -253,7 +261,7 @@ function useTool() {
 function throwItem(kind, tgt) {
   const me = G.me; if (!(kind === 'poop' && inDuel())) G.inv[kind]--; G.cnt.throws += kind === 'poop' ? 1 : 0; G.shotCool = .35;
   setFacing(me, tgt.x - me.x, tgt.y - me.y); if (kind === 'poop' || kind === 'stone') me.heat = Math.max(me.heat, 3);
-  startAct('throw', .22, () => { const sol = solveThrow(me, G.aim.x !== undefined ? { x: tgt.x, y: tgt.y, z: tgt.z } : tgt); spawnProj(kind, me, sol); netProj(kind, me, sol); sfx.throw(); });
+  startAct('throw', .22, () => { const sol = solveThrow(me, G.aim.x !== undefined ? { x: tgt.x, y: tgt.y, z: tgt.z } : tgt); spawnProj(kind, me, sol); netProj(kind, me, sol); sfx.throw(); if (kind === 'poop') gangMimicThrow(tgt); });
 }
 function throwMega(tgt) {
   const me = G.me; G.inv.poop -= 3; G.shotCool = .9; G.cnt.throws++; setFacing(me, tgt.x - me.x, tgt.y - me.y); me.heat = Math.max(me.heat, 5);
@@ -420,6 +428,7 @@ function update(dt) {
   if (G.diarrheaT > 0) { G.diarrheaT -= dt; addEnergy(-.25 * dt); if (me.moving) { G.trailT -= dt; if (G.trailT <= 0) { G.trailT = .4; G.splats.push({ x: me.x - me.dx * .3, y: me.y - me.dy * .3, z: me.z, t: 0 }); if (Math.random() < .3) SND.splat(me); } } if (G.diarrheaT <= 0) toast('😌 Живот успокоился — бананы снова можно', 'good'); }
   if (host) { const was = isNight(); G.dayT += dt; if (G.dayT >= DAY_LEN) { G.dayT -= DAY_LEN; G.day++; if (G.day <= DAYS) { toast('📅 День ' + G.day + ' из ' + DAYS + (DAYS - G.day < 3 ? ' — времени почти не осталось!' : ''), DAYS - G.day < 3 ? 'bad' : ''); } } if (!was && isNight()) toast('🌙 Ночь: посетители ушли, смотритель идёт спать в сторожку'); if (was && !isNight()) toast('🌅 Утро: зоопарк просыпается'); }
   if (G.day > DAYS) { timeUp(); return; }
+  if (host) { updateIntruders(dt); if (G.dayT < dt * 1.5) G.npcs.forEach(c => { if (c.sp === 'chimp') c.hool = (c.hool || 0) + Math.floor(rnd(5, 25)); }); }
   if (((me.dirtP || 0) + (me.dirtB || 0)) > 0 && tileKind(me.x, me.y) === K.WATER && me.grounded) { G.washT += dt; if (G.washT > 1.2) { me.dirtP = 0; me.dirtB = 0; G.washT = 0; G.cnt.washes++; toast('🛁 Отмылся! Скорость снова в норме', 'good'); SND.splash(me); emit(me.x, me.y, me.z + 1, 14, { col: P_.w3, spread: 1.5, v0: 1, v1: 4, life: .8 }); } } else G.washT = 0;
   if (me.z >= 4.9 && !G.cnt.summit) { G.cnt.summit = 1; toast('Ты в домике на вершине! Здесь сундук (E)', 'good'); sfx.up(); }
   for (const q of QUESTS) if (!q.done && q.get() >= q.goal) { q.done = true; addScore(q.reward); toast(`✅ ${q.text}  +${q.reward}`, 'good'); sfx.ok(); }
@@ -472,6 +481,7 @@ function applyHurt(h) {
   if (h.stun) { me.stun = Math.max(me.stun, h.stun); me.act = null; if (G.mini) endMini(); }
   if (h.push && walkableAt(G.W, h.push.x, h.push.y, me.z)) { me.x = h.push.x; me.y = h.push.y; }
   if (h.lose) G.inv[h.lose] = 0;
+  if (h.loseOne) G.inv[h.loseOne] = Math.max(0, (G.inv[h.loseOne] || 0) - 1);
   if (h.score) addScore(h.score);
   if (h.splat) me.splat = h.splat;
   if (h.dirt || h.bird) {
@@ -544,6 +554,13 @@ function updateHud() {
   $('escapeInfo').innerHTML = `<span class="ks ${ks[1]}">${ks[0]}</span> · 🗝 ${G.hasKey ? '✔' : '✘'} · уровни ${lvSum()}/${NEED_SUM}${G.combo > 1 ? ' · 🔥×' + Math.min(3, G.combo) : ''}`;
   TOOLS.forEach((t, i) => { slotEls[i].classList.toggle('sel', i === G.tool); slotEls[i].classList.toggle('off', !t.ok()); slotEls[i].querySelector('em').textContent = t.count(); });
   $('seedInfo').textContent = '🌱 ' + G.W.seed; drawMinimap();
+  { const pts = hoolPts(), r = hoolRank(pts), cur = HOOL_RANKS[r], nx = HOOL_RANKS[r + 1];
+    if (r > G.lastRank) { G.lastRank = r; toast(`${cur.icon} Новое звание: ${cur.n}! В банде теперь до ${r} обезьян`, 'good'); sfx.up(); }
+    const gang = gangOf(NET.id);
+    const board = [...G.npcs.filter(c => c.sp === 'chimp').map(c => ({ n: c.name, p: c.hool || 0 })), ...livePlayers().map(p => ({ n: p.name + (p.me ? ' (ты)' : ''), p: p.me ? pts : (p.hp || 0), me: p.me }))].sort((a, b) => b.p - a.p).slice(0, 5);
+    $('hool').innerHTML = `<h3>${cur.icon} ${cur.n}</h3><div class="row"><span>очки хулигана</span><b>${pts}${nx ? ' / ' + nx.p : ''}</b></div><span class="bar" style="display:block;width:100%;height:8px;margin:3px 0"><i style="background:#ff7a5c;width:${nx ? clamp((pts - cur.p) / (nx.p - cur.p), 0, 1) * 100 : 100}%"></i></span>`
+      + `<div style="font-size:12px;margin-top:4px">⚔ Банда ${gang.length}/${r}</div>` + gang.map(c => `<div class="pl"><span>${c.name}${c.carry ? ' 🍌' : ''}</span><b style="color:${c.loyal < 30 ? '#ff7a60' : '#a8e040'}">${Math.round(c.loyal)}%</b></div>`).join('')
+      + `<div style="font-size:12px;margin-top:6px">🏆 Рейтинг обезьян</div>` + board.map((b, i) => `<div class="pl${b.me ? ' me' : ''}"><span>${i + 1}. ${b.n}</span><b>${b.p}</b></div>`).join(''); }
   $('netTag').textContent = NET.role === 'host' ? '🌐 хост' : NET.role === 'client' ? '🌐 гость' : '';
   const pls = livePlayers(); $('players').style.display = isNet() ? 'block' : 'none';
   if (isNet()) $('players').innerHTML = '<h3>👥 Игроки</h3>' + pls.map(p => '<div class="pl' + (p.me ? ' me' : '') + '"><span>' + p.name + (G.keyHolder === p.netId ? ' 🗝' : '') + '</span><b>⭐' + (p.me ? G.score : (p.score || 0)) + ' · ур.' + (p.me ? lvSum() : (p.lv || 4)) + '</b></div>').join('');
@@ -558,13 +575,13 @@ function updateHud() {
 
 // ───────── Запуск ─────────
 function startGame(seed, withTut, opts = {}) {
-  loadSounds();
+  loadSounds(); LOG.length = 0; if ($('log')) $('log').innerHTML = '';
   if (!opts.role) netClose();
   seed = (seed || '').trim() || randomSeed();
   resetState(); G.W = genWorld(seed); const W = G.W;
   buildOuter(W); buildMinimap();
   G.me = newPlayer(W, opts.name || Profile.cur || 'Ты', FUR[opts.fur] || FUR.brown); G.players = [G.me];
-  G.npcs = W.npcSpawns.map(s => newNpc(s, W)); G.keeper = newKeeper(W); G.vis = newVisitors(W); Object.assign(G.keeper, { nx: G.keeper.x, ny: G.keeper.y, nz: G.keeper.z });
+  G.npcs = W.npcSpawns.map(s => newNpc(s, W)); { const R = mulberry32(W.seedNum + 3); G.npcs.forEach(c => { if (c.sp === 'chimp') c.hool = Math.floor(20 + R() * 260); }); } G.keeper = newKeeper(W); G.vis = newVisitors(W); Object.assign(G.keeper, { nx: G.keeper.x, ny: G.keeper.y, nz: G.keeper.z });
   G.camSnap = true; G.state = 'play'; G.stageCool = 0;
   document.body.classList.remove('inmenu'); $('menu').style.display = 'none'; $('win').style.display = 'none'; $('tutAgain').style.display = 'block'; $('tut').style.display = 'none'; $('lostBox').style.display = 'none'; NET.last.clear();
   try { localStorage.setItem('chimpSeed2', seed); } catch (e) { }
