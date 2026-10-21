@@ -127,8 +127,9 @@ const chaOf = p => p ? (p.me ? G.st.cha.lv : (p.ch || 1)) : 1;
 function keeperSees(k, p) {
   if (p.invuln > 0) return false;
   const d = Math.hypot(p.x - k.x, p.y - k.y);
+  if (inShelter(p) && d > 1.2) return false;
   if (k.state === 'sleep' || k.state === 'tohut') return d < 1.4 && !p.crouch;
-  let range = 8.5; if (p.crouch) range *= .5; else if (p.sprint) range *= 1.3;
+  let range = 8.5; if (p.crouch) range *= .5; else if (p.sprint) range *= 1.3; if (p.me ? G.mudT > 0 : p.mud) range *= .6;
   if (Math.abs(p.z - k.z) > 2.6) range *= .45;
   if (d > range) return false;
   if (d < 1.8) return true;
@@ -395,6 +396,7 @@ function collectPickup(type, at) {
     case 'nut': G.inv.nut = Math.min(9, G.inv.nut + 1); floater(x, y, z, '+орех', P_.d3); sfx.eat(); break;
     case 'stone': G.inv.stone = Math.min(9, G.inv.stone + 1); floater(x, y, z, '+камень', P_.r3); sfx.tick(); break;
     case 'stick': G.inv.stick = Math.min(5, G.inv.stick + 1); floater(x, y, z, '+палка', P_.d3); sfx.tick(); break;
+    case 'vine': G.inv.vine = Math.min(2, (G.inv.vine || 0) + 1); floater(x, y, z, '+лиана', P_.lime); sfx.tick(); break;
   }
 }
 
@@ -407,6 +409,13 @@ function solveThrow(p, tgt, maxRIn) {
   const T = clamp(d * .075 + .35, .4, 1.4) * clamp(1 - .07 * (G.st.str.lv - 1), .7, 1) / (G.boostT > 0 ? 1.25 : 1), zt = (k < 1 ? groundAt(G.W, o.x + dx * k, o.y + dy * k) : tgt.z) + .6;
   return { vx: dx * k / T, vy: dy * k / T, vz: (zt - o.z + .5 * GP * T * T) / T, T };
 }
+// перемещение предмета с обновлением занятых клеток (баррикады работают и для смотрителя)
+function moveObj(o, nx, ny) {
+  const W = G.W; if (o.blk && o.tx >= 0 && o.ty >= 0 && o.tx < N && o.ty < N) W.blocked[o.ty * N + o.tx] = 0;
+  o.x = nx; o.y = ny; o.tx = Math.floor(nx); o.ty = Math.floor(ny);
+  if (o.blk && o.tx >= 0 && o.ty >= 0 && o.tx < N && o.ty < N) W.blocked[o.ty * N + o.tx] = 1;
+}
+const inShelter = p => (G.shelters || []).some(s => Math.hypot(s.x - p.x, s.y - p.y) < .7);
 function solveFrom(o, tgt, maxR = 12) {
   const dx = tgt.x - o.x, dy = tgt.y - o.y; let d = Math.hypot(dx, dy), k = 1; if (d > maxR) k = maxR / d; d *= k;
   const T = clamp(d * .075 + .35, .4, 1.4), zt = (tgt.z || 0) + .6;
@@ -437,6 +446,7 @@ function projLand(q, wall) {
   else if (q.kind === 'banana') { addPickup({ type: 'banana', x, y, z: gz, age: 0 }); emit(x, y, gz, 3, { col: P_.yel, spread: .8, v0: .5, v1: 2 }); }
   else if (q.kind === 'stone') { addPickup({ type: 'stone', x, y, z: gz, age: 0 }); emit(x, y, gz, 5, { kind: 'dust', spread: 1, v0: .5, v1: 1.5, g: 0, life: .4 }); sfx.hit(); netNoise(x, y, 6, 'камень'); }
   else if (q.kind === 'water') { emit(x, y, gz, 4, { col: P_.w3, spread: 1.2, v0: 1, v1: 3, life: .4 }); }
+  else if (q.kind === 'tire') { SND.thud({ x, y }); emit(x, y, gz, 6, { kind: 'dust', spread: 1, v0: .5, v1: 1.5, g: 0, life: .5 }); const o = q.obj; if (o) { let tx = x, ty = y; if (!tileFree(tx, ty, true)) { for (let r = .5; r < 3; r += .5) { const a = rnd(0, 6.28); if (tileFree(x + Math.cos(a) * r, y + Math.sin(a) * r)) { tx = x + Math.cos(a) * r; ty = y + Math.sin(a) * r; break; } } } moveObj(o, clamp(tx, 1, N - 1), clamp(ty, 1, N - 1)); o.held = null; } }
   else if (q.kind === 'pee') { if (Math.random() < .35) G.splats.push({ x, y, z: gz, t: 0, c: 'pee' }); }
   else if (q.kind === 'mega') { SND.splat({ x, y }); SND.thud({ x, y }); emit(x, y, gz + .5, 40, { col: [P_.d0, P_.d1, P_.d2], spread: 3, v0: 2, v1: 7, life: 1.1, size: 2 }); for (let i = 0; i < 7; i++) G.splats.push({ x: x + rnd(-2, 2), y: y + rnd(-2, 2), z: gz, t: 0 }); if (isHost()) megaSplash(q.owner, x, y); else NET.send({ t: 'mega', x, y }); }
   return true;
@@ -444,11 +454,12 @@ function projLand(q, wall) {
 function noiseAt(x, y, r, why) { const k = G.keeper; if (k && dist(k, { x, y }) < r + 6 && k.state !== 'chase' && k.state !== 'stunned') alertKeeper(k, x, y, why); }
 // поиск цели попадания (на любой стороне), затем — хост применяет, гость просит хоста
 function projHit(q) {
-  if (q.kind === 'mega') return false;      // мега-снаряд взрывается только при падении
+  if (q.kind === 'mega') return false;
+  if (q.kind === 'tire' && q.t < .12) return false;      // мега-снаряд взрывается только при падении
   const z = q.z, hitR = q.kind === 'water' || q.kind === 'pee' ? .9 : .7;
-  for (let i = 0; i < G.vis.length; i++) { const v = G.vis[i]; if (v.a < .5 || !v.on) continue; if (Math.hypot(v.x - q.x, v.y - q.y) < hitR && z > -.2 && z < 3.6) return dispatchHit(q, 'v', i); }
+  for (let i = 0; i < G.vis.length; i++) { const v = G.vis[i]; if (v.a < .5 || !v.on || q.kind === 'tire') continue; if (Math.hypot(v.x - q.x, v.y - q.y) < hitR && z > -.2 && z < 3.6) return dispatchHit(q, 'v', i); }
   for (let i = 0; i < G.npcs.length; i++) { const n = G.npcs[i]; if (n === q.src) continue; if (Math.hypot(n.x - q.x, n.y - q.y) < (n.sp === 'gorilla' ? 1 : .75) && z > n.z - .3 && z < n.z + (n.sp === 'gorilla' ? 4 : n.sp === 'tortoise' ? 1.5 : 3.2)) return dispatchHit(q, 'n', i); }
-  if (q.kind === 'poop' || q.kind === 'pee') for (const p of livePlayers()) { if (p === q.owner || p.invuln > 0) continue; if (Math.hypot(p.x - q.x, p.y - q.y) < .7 && z > p.z - .3 && z < p.z + 3.6) return dispatchHit(q, 'p', p.netId); }
+  if (q.kind === 'poop' || q.kind === 'pee' || q.kind === 'tire') for (const p of livePlayers()) { if (p === q.owner || p.invuln > 0) continue; if (Math.hypot(p.x - q.x, p.y - q.y) < .7 && z > p.z - .3 && z < p.z + 3.6) return dispatchHit(q, 'p', p.netId); }
   for (const it of G.intruders) if (it.state === 'wander' && Math.hypot(it.x - q.x, it.y - q.y) < .8 && z > it.z - .3 && z < it.z + 4.4) return dispatchHit(q, 'i', it.id);
   const k = G.keeper; if (k && Math.hypot(k.x - q.x, k.y - q.y) < .8 && z > k.z - .3 && z < k.z + 4.4) return dispatchHit(q, 'k', 0);
   for (const o of G.W.objs) if (o.type === 'gong' && Math.hypot(o.x - q.x, o.y - q.y) < 1 && z > 0 && z < 4) { ringGong(o); G.cnt.gongs++; return projLand(q, true); }
@@ -491,6 +502,13 @@ function hitVisitor(by, kind, v, q) {
   }
 }
 function hitNpc(by, kind, n, q) {
+  if (kind === 'tire' || kind === 'whip') {
+    if (n.sp === 'chimp') { n.fleeT = 4; n.bond = Math.max(0, n.bond - 15); if (n.gang) n.loyal -= 25; }
+    else if (n.sp === 'gorilla') { n.rage = 6; n.state = 'chase'; SND.gorilla(n); }
+    else if (n.sp === 'troop' || n.sp === 'parrot') { n.fleeT = 5; if (n.sp === 'parrot') n.perch = 0; }
+    reward(by, { score: 5, cnt: kind === 'whip' ? { whips: 1 } : {}, fl: [n.x, n.y, n.z + 2, kind === 'whip' ? 'хлесть!' : 'бам!', P_.org] });
+    if (kind === 'tire') projLand({ ...q, kind }, true); return;
+  }
   if (n.sp === 'chimp') {
     if (kind === 'banana') { n.bond = Math.min(100, n.bond + 30); n.mood = 'happy'; n.moodT = 2.5; reward(by, { fl: [n.x, n.y, n.z + 1, '+дружба', P_.pink] }); checkBond(n, by); }
     else if (kind === 'poop' || kind === 'stone') { if (n.gang) n.loyal -= 35; n.fleeT = n.gang ? 1.5 : 5; n.bond = Math.max(0, n.bond - 25); if (n.bond < 50) n.friend = false; reward(by, { fl: [n.x, n.y, n.z + 1, 'обиделся', P_.red], sfx: 'bad' }); }
@@ -509,6 +527,12 @@ function hitNpc(by, kind, n, q) {
 }
 function hitKeeper(by, kind, q) {
   const k = G.keeper;
+  if (kind === 'tire' || kind === 'whip') {
+    const st = kind === 'tire' ? 2.6 : 1.4;
+    if (k.state !== 'stunned') { k.state = 'stunned'; k.stunT = st; k.target = null; emit(k.x, k.y, k.z + 2, 8, { kind: 'star', col: P_.yel, spread: 1.4, v0: 1, v1: 3, g: 8, life: .8 }); }
+    reward(by, { score: kind === 'tire' ? 30 : 15, cnt: kind === 'whip' ? { whips: 1 } : {}, heat: 6, sfx: 'hit', fl: [k.x, k.y, k.z + 3, kind === 'tire' ? 'СБИЛ ШИНОЙ! +30' : 'ХЛЕСТЬ! +15', P_.yel] });
+    if (kind === 'tire') projLand({ ...q, kind }, true); return;
+  }
   if (kind === 'banana') {
     if (k.state !== 'stunned') { k.state = 'stunned'; k.stunT = 3.5; k.target = null; emit(k.x, k.y, k.z + 2, 8, { kind: 'star', col: P_.yel, spread: 1.4, v0: 1, v1: 3, g: 8, life: .8 }); reward(by, { score: 25, cnt: { slips: 1 }, sfx: 'ok', toast: ['Смотритель поскользнулся на банане! Ключ — рядом (E)', 'good'], fl: [k.x, k.y, k.z + 3, 'ПОСКОЛЬЗНУЛСЯ! +25', P_.yel] }); }
   } else if (kind === 'poop' || kind === 'stone' || kind === 'pee') {
@@ -549,6 +573,7 @@ function duelStart(aId, bId) {
 function hitPlayer(by, kind, pl, q) {
   if (!pl || !by) return;
   if (kind === 'pee') { if ((pl.peeHitT || 0) > G.t) return; pl.peeHitT = G.t + .6; hurtPlayer(pl, { dirt: .25, sfx: 'splash', fl: [pl.x, pl.y, pl.z + 3, 'ФУ, ОПИСАЛИ!', '#f0e060'] }); reward(by, { score: 4, cnt: { pees: 1 } }); return; }
+  if (kind === 'tire') { hurtPlayer(pl, { stun: 1, sfx: 'hit', fl: [pl.x, pl.y, pl.z + 3, 'ШИНОЙ!', P_.org] }); reward(by, { score: 10 }); return; }
   if (kind !== 'poop') return;
   const duelNow = duelActive(by, pl);
   hurtPlayer(pl, { stun: duelNow ? .45 : .25, splat: 3, dirt: 1, sfx: 'splat', fl: [pl.x, pl.y, pl.z + 3, 'ПОПАЛИ!', P_.org] });

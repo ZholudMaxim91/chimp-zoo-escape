@@ -184,7 +184,7 @@ const ZERO_KEYS = ['hips', 'torso', 'neck', 'head', 'shL', 'shR', 'elL', 'elR', 
 function resetPose(j) { for (const k of ZERO_KEYS) if (j[k]) j[k].rotation.set(0, 0, 0); if (j.mouth) j.mouth.scale.y = j.mouth.userData.sy || (j.mouth.userData.sy = j.mouth.scale.y); }
 // st: {move:0|1|2 (стоит/идёт/бежит), crouch, air, act, actP (0..1), t}
 function poseApe(r, st) {
-  const j = r.j, t = st.t; resetPose(j); j.hold.visible = false; j.holdB.visible = !!st.carry; j.body.rotation.z = 0; j.body.position.y = 0;
+  const j = r.j, t = st.t; resetPose(j); j.hold.visible = false; j.holdB.visible = !!st.carry; j.body.rotation.z = 0; j.body.rotation.y = 0; j.body.position.y = 0;
   let hipsY = .42;
   if (st.move && !st.act) {          // ходьба на костяшках (четвероногая)
     const ph = t * (st.move === 2 ? 12 : 7.5), s = Math.sin(ph), c = Math.cos(ph);
@@ -219,6 +219,12 @@ function poseApe(r, st) {
     const w = Math.sin(t * 11);
     j.torso.rotation.x = .1; j.hips.rotation.y = w * .4; j.shL.rotation.x = -2.4 + w * .6; j.shR.rotation.x = -2.4 - w * .6; j.shL.rotation.z = -.5; j.shR.rotation.z = .5;
     j.mouth.scale.y = j.mouth.userData.sy * 2.5; hipsY = .4 + Math.abs(w) * .08;
+  } else if (a === 'push') {
+    const w = Math.sin(t * 8); j.torso.rotation.x = .9; j.neck.rotation.x = -.7; j.shL.rotation.x = j.shR.rotation.x = -1.5 + w * .1; j.elL.rotation.x = j.elR.rotation.x = -.2; j.hipL.rotation.x = -.6 + w * .3; j.hipR.rotation.x = -.6 - w * .3; j.knL.rotation.x = j.knR.rotation.x = .6;
+  } else if (a === 'whip') {
+    j.torso.rotation.y = .5 - (st.actP || 0) * 1.2; j.shR.rotation.x = -2.8 + (st.actP || 0) * 2; j.shR.rotation.z = .4; j.elR.rotation.x = -.3; j.torso.rotation.x = .2;
+  } else if (a === 'spin') {
+    j.body.rotation.y = t * 14; j.shL.rotation.x = j.shR.rotation.x = -2.9; j.shL.rotation.z = -.4; j.shR.rotation.z = .4; j.torso.rotation.x = 0; hipsY = .42;
   } else if (a === 'sleep') {
     j.body.rotation.z = 1.45; j.body.position.y = .12; j.torso.rotation.x = .4; j.neck.rotation.x = .3; j.shL.rotation.x = j.shR.rotation.x = -1.2; j.elL.rotation.x = j.elR.rotation.x = -1.2; j.hipL.rotation.x = j.hipR.rotation.x = -1.3; j.knL.rotation.x = j.knR.rotation.x = 1.6; hipsY = .3; j.torso.scale.y = 1 + Math.sin(t * 1.6) * .03;
   } else if (a === 'groom') {

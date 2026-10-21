@@ -291,6 +291,17 @@ function buildObjects(W) {
         mb.add(GEO.cyl, M(x, z + .2, y, .32, .4, .32), '#9a9aa8', .08, s); mb.add(GEO.cyl, M(x, z + .41, y, .27, .03, .27), '#6ab4e8', 0);
         mb.add(GEO.cyl, M(x, z + .65, y, .05, .5, .05), '#8a8a96', .05); mb.add(GEO.sph, M(x, z + .92, y, .08, .05, .08), '#a8a8b4', 0);
         const jet = part(GEO.cone, '#9ad8ff', [x, z + 1.0, y], [.03, .12, .03], null, { emissive: '#3a7aaa', emissiveIntensity: .3 }); addDyn(jet, o, (o, t) => { jet.scale.y = .1 + Math.abs(Math.sin(t * 6)) * .06; }); break; }
+      case 'crate': case 'barrel': case 'boulder': case 'tire': {
+        const gg = new T3.Group(), R = mulberry32(o.id * 7);
+        if (o.type === 'crate') { gg.add(part(GEO.box, '#a87a48', [0, .3, 0], [.62, .6, .62])); for (const [a, b] of [[1, 1], [1, -1], [-1, 1], [-1, -1]]) gg.add(part(GEO.box, '#6a4628', [a * .3, .3, b * .3], [.06, .62, .06])); gg.add(part(GEO.box, '#6a4628', [0, .3, .315], [.6, .06, .02], [0, 0, .8])); gg.add(part(GEO.box, '#6a4628', [.315, .3, 0], [.02, .06, .6], [.8, 0, 0])); }
+        else if (o.type === 'barrel') { gg.add(part(GEO.cyl, '#8a5a30', [0, .32, 0], [.28, .64, .28])); for (const hh of [.1, .54]) gg.add(part(GEO.cyl, '#3a3a40', [0, hh, 0], [.29, .04, .29], null, { metalness: .4 })); gg.add(part(GEO.cyl, '#6a4426', [0, .645, 0], [.25, .01, .25])); }
+        else if (o.type === 'boulder') { const mb2 = new MB(); mb2.add(GEO.sph2, M(0, .38, 0, .48, .4, .44), '#8a8a96', .18, o.id, .35); mb2.add(GEO.sph, M(.15, .62, .05, .2, .12, .18), '#5e7a44', .2, o.id + 1, .3); gg.add(mb2.build()); }
+        else { gg.add(part(GEO.tor, '#1e1e22', [0, .1, 0], [.26, .26, .26], [Math.PI / 2, 0, 0])); }
+        gg.position.set(x, z, y); gg.rotation.y = R() * 6.28;
+        addDyn(gg, o, (o, t) => { const k = .25; gg.visible = !o.held; gg.position.x += (o.x - gg.position.x) * k; gg.position.z += (o.y - gg.position.z) * k; gg.position.y = groundSmooth(gg.position.x, gg.position.z) * LV; }); break; }
+      case 'mud': { const m = part(GEO.cyl, '#3e2a18', [x, z + .015, y], [.95, .02, .8]); m.castShadow = false; scene.add(m); for (let i = 0; i < 4; i++) { const b = part(GEO.sph, '#4e3420', [x + Math.cos(i * 1.7) * .5, z + .02, y + Math.sin(i * 1.7) * .4], [.12, .03, .1]); b.castShadow = false; scene.add(b); } break; }
+      case 'hammock': { for (const sx of [-.7, .7]) mb.add(GEO.cyl, M(x + sx, z + .55, y, .05, 1.1, .05), '#6a4628', .08); const cl = new MB(); for (let i = 0; i < 8; i++) { const f = i / 7 - .5; cl.add(GEO.box, M(x + f * 1.3, z + .62 - (.25 - f * f) * .9, y, .18, .03, .45), i % 2 ? '#d24a34' : '#f0d070', 0); } scene.add(cl.build()); break; }
+      case 'logpile': { for (let i = 0; i < 5; i++) mb.add(GEO.cyl, M(x + (i % 3 - 1) * .2, z + .1 + Math.floor(i / 3) * .17, y, .09, .7, .09, 0, 0, Math.PI / 2), i % 2 ? '#8a6238' : '#a07448', .1, i); break; }
       case 'termite': for (let i = 0; i < 3; i++) mb.add(GEO.cone, M(x + (i - 1) * .14, z + .4 - i * .07, y + (i % 2) * .1, .3 - i * .05, .85 - i * .2, .3 - i * .05), '#9a7048', .14, s + i, .2); for (let i = 0; i < 4; i++) mb.add(GEO.sph, M(x + Math.cos(i) * .2, z + .2 + i * .1, y + Math.sin(i) * .2 + .1, .04, .05, .03), '#2a1a10', 0); break;
       case 'anvil': mb.add(GEO.cyl, M(x, z + .15, y, .22, .3, .22), '#7a5230', .1, s); mb.add(GEO.box, M(x, z + .34, y, .55, .1, .38), '#8a8a9a', .1, s, .1); mb.add(GEO.box, M(x, z + .4, y, .5, .02, .33), '#a8a8b8', 0); break;
       case 'nutpile': { const g3 = new T3.Group(); for (let i = 0; i < 6; i++) g3.add(part(GEO.sph, '#a07040', [x + Math.cos(i * 1.7) * .14 * (i % 3) / 2, z + .05 + Math.floor(i / 3) * .07, y + Math.sin(i * 1.7) * .14 * (i % 3) / 2], [.06, .055, .06])); addDyn(g3, o, o => g3.children.forEach((c, i) => c.visible = i < o.nuts)); break; }
@@ -494,7 +505,7 @@ const PICK_MK = {
   peanut: () => part(GEO.sph, '#d8b070', null, [.07, .05, .1]), nut: () => part(GEO.sph, '#8a5a30', null, [.07, .07, .07]),
   stone: () => part(GEO.sph, '#9a9aa4', null, [.09, .07, .08]), stick: () => part(GEO.cyl, '#8a6238', null, [.025, .45, .025], [0, 0, 1.4]),
   poop: () => part(GEO.sph, '#5a3a1a', null, [.08, .07, .08]), mega: () => part(GEO.sph2, '#4a2e12', null, [.22, .2, .22]), pee: () => part(GEO.sph, '#f0e060', null, [.03, .03, .03], null, { emissive: '#605010', emissiveIntensity: .3 }), water: () => part(GEO.sph, '#9ad8ff', null, [.04, .04, .04], null, { emissive: '#3a7aaa', emissiveIntensity: .4 }),
-  hook: () => part(GEO.sph, '#c89a62', null, [.04, .04, .04]),
+  hook: () => part(GEO.sph, '#c89a62', null, [.04, .04, .04]), vine: () => part(GEO.cyl, '#4e8a32', null, [.02, .5, .02], [.3, 0, 1.2]), tire: () => part(GEO.tor, '#1e1e22', null, [.26, .26, .26], [Math.PI / 2, 0, 0]),
 };
 function syncItems() {
   const T = G.t, cnt = {};
@@ -505,7 +516,13 @@ function syncItems() {
     else z = groundSmooth(x, y);
     put(p.type, x, z + (p.type === 'coin' ? .3 + Math.sin(T * 4 + p.x) * .05 : 0), y, p.type === 'coin');
   }
-  for (const q of G.proj) put(q.kind === 'poop' ? 'poop' : q.kind, q.x, q.z, q.y, true);
+  for (const q of G.proj) { const m = put(q.kind === 'poop' ? 'poop' : q.kind, q.x, q.z, q.y, true); if (q.kind === 'tire') m.rotation.x = G.t * 12; }
+  // шина в руках над головой
+  let hi = 0; for (const o of G.W.objs) if (o.type === 'tire' && o.held) { const p = G.players.find(q => q.netId === o.held); if (!p) continue; const m = pool('tireHeld', hi++, PICK_MK.tire); const sp = p.me && G.spin; m.position.set(p.x, (visY(p) + 3.2) * LV, p.y); m.rotation.set(Math.PI / 2, 0, sp ? G.t * 18 : 0); }
+  hideFrom('tireHeld', hi);
+  // шалаши
+  let shi = 0; for (const s of G.shelters || []) { const m = pool('shelter', shi++, () => { const gg = new T3.Group(); for (let i = 0; i < 7; i++) { const a = i / 7 * 6.28; gg.add(part(GEO.cyl, i % 2 ? '#8a6238' : '#6a4628', [Math.cos(a) * .22, .45, Math.sin(a) * .22], [.025, 1.0, .025], [Math.sin(a) * .35, 0, -Math.cos(a) * .35])); } for (let i = 0; i < 6; i++) { const a = i / 6 * 6.28 + .3; gg.add(part(GEO.sph, '#8a8a96', [Math.cos(a) * .45, .06, Math.sin(a) * .45], [.1, .08, .09])); } gg.add(part(GEO.cone5, '#5e8a3a', [0, .55, 0], [.42, .8, .42], null, { transparent: true, opacity: .75 })); return gg; }); m.position.set(s.x, groundSmooth(s.x, s.y) * LV, s.y); }
+  hideFrom('shelter', shi);
   for (const k of Object.keys(PICK_MK)) hideFrom(k, cnt[k] || 0);
   let si = 0;
   let pi = 0;
@@ -570,6 +587,7 @@ function drawOverlay() {
   if (G.gateOpen && Math.floor(T * 3) % 2) { const s = project(N + 1.5, 4, G.W.gate.y + .5); pxText(g, '> БЕГИ! >', s.x, s.y, P_.yel, 8); }
   drawParts();
   for (const f of G.floaters) { const a = clamp(1.6 - f.t, 0, 1); g.globalAlpha = a; const s = project(f.x, f.z, f.y); pxText(g, f.text, s.x, s.y - 14 - f.t * 14, f.col, 8); g.globalAlpha = 1; }
+  if (G.whipFx && G.me) { const a = project(G.me.x, visY(G.me) + 2, G.me.y), b = project(G.whipFx.x, G.whipFx.z, G.whipFx.y); g.globalAlpha = clamp(G.whipFx.t * 4, 0, 1); for (let i = 0; i <= 10; i++) { const k = i / 10, x = a.x + (b.x - a.x) * k, y = a.y + (b.y - a.y) * k - Math.sin(k * Math.PI) * 10; rect(g, Math.round(x), Math.round(y), 2, 2, '#4e8a32'); } g.globalAlpha = 1; }
   drawTutArrows(); drawAim();
 }
 

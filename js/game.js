@@ -13,7 +13,7 @@ function resetState() {
     t: 0, day: 1, dayT: 10, boostT: 0, washT: 0, score: 0, energy: 80, keyHolder: null, pid: 0, duel: null, invite: null, gateOpen: false, gateAnim: 0, combo: 0, comboT: 0, mini: null, tut: null, tutOk: false, tutDist: 0, dustT: 0, peanutT: 5,
     vineCool: 0, shotCool: 0, stickDur: 3, startedAt: performance.now(), keyHint: 0,
     st: { str: { lv: 1, xp: 0 }, agi: { lv: 1, xp: 0 }, int: { lv: 1, xp: 0 }, cha: { lv: 1, xp: 0 } },
-    inv: { banana: 0, nut: 0, stone: 2, stick: 0, poop: 3, coin: 0, water: 0, coconut: 0 }, bladder: 10, diarrheaT: 0, eatLog: [], peeT: 0, trailT: 0,
+    inv: { banana: 0, nut: 0, stone: 2, stick: 0, poop: 3, coin: 0, water: 0, coconut: 0, vine: 1 }, vineHP: 4, mudT: 0, carry: null, spin: null, shelters: [], tireXpT: 0, bladder: 10, diarrheaT: 0, eatLog: [], peeT: 0, trailT: 0,
     cnt: { banana: 0, peanut: 0, nuts: 0, fish: 0, dig: 0, treasure: 0, puzzle: 0, show: 0, drums: 0, hits: 0, viral: 0, bestCombo: 0, bestShow: 0, stolen: 0, friends: 0, decoy: 0, slips: 0, gongs: 0,
       squirts: 0, parrots: 0, summit: 0, vines: 0, jumps: 0, bounces: 0, ladders: 0, sprintT: 0, pacify: 0, locker: 0, throws: 0, shakes: 0, duels: 0, pHits: 0, washes: 0, pees: 0, cocos: 0, megas: 0, scared: 0, screams: 0, diarrhea: 0, troopHits: 0, intruders: 0, gangHits: 0, whips: 0, recruits: 0 }, intruders: [], lastRank: 0,
     pickups: [], proj: [], parts: [], floaters: [], splats: [],
@@ -108,7 +108,7 @@ function describe(t) {
       return { text: 'Сорвать банан', run: () => startAct('eat', .6, () => { o.bananas--; o.regrow = 0; G.inv.banana++; floater(o.x, o.y, 3, '+банан', P_.yel); sfx.eat(); emit(o.x, o.y, groundAt(W, o.x, o.y) + 4, 6, { col: [P_.g2, P_.g3], spread: 1, v0: 0, v1: 2, g: 5, life: 1.2 }); }) };
     case 'tree':
       if (o.cool > 0) return { text: 'Дерево уже трясли…', bad: true };
-      return { text: 'Потрясти дерево (палки, орехи)', run: () => startAct('climb', .9, () => { o.cool = 25; G.cnt.shakes++; const r = Math.random(); lootDrop(r < .5 ? 'stick' : 'nut', o.x + rnd(-1, 1), o.y + rnd(.6, 1.4)); if (r > .7) lootDrop('nut', o.x + rnd(-1, 1), o.y + 1); emit(o.x, o.y, groundAt(W, o.x, o.y) + 4, 10, { kind: 'dust', col: P_.g2, spread: 1.4, v0: 0, v1: 1, g: 3, life: 1 }); sfx.tick(); }) };
+      return { text: 'Потрясти дерево (палки, орехи)', run: () => startAct('climb', .9, () => { o.cool = 25; G.cnt.shakes++; const r = Math.random(); lootDrop(r < .5 ? 'stick' : 'nut', o.x + rnd(-1, 1), o.y + rnd(.6, 1.4)); if (Math.random() < .22) lootDrop('vine', o.x + rnd(-1, 1), o.y + 1.2); if (r > .7) lootDrop('nut', o.x + rnd(-1, 1), o.y + 1); emit(o.x, o.y, groundAt(W, o.x, o.y) + 4, 10, { kind: 'dust', col: P_.g2, spread: 1.4, v0: 0, v1: 1, g: 3, life: 1 }); sfx.tick(); }) };
     case 'bush':
       if (o.sticks > 0) return { text: 'Взять палку (инструмент 4)', run: () => startAct('eat', .5, () => { o.sticks--; o.regrow = 0; G.inv.stick = Math.min(5, G.inv.stick + 1); floater(o.x, o.y, 2, '+палка', P_.d3); sfx.tick(); }) };
       if (o.berries > 0) return { text: 'Съесть ягоды (+энергия)', run: () => startAct('eat', .5, () => { o.berries--; o.regrow = 0; addEnergy(10); addScore(2); floater(o.x, o.y, 2, '+10 сил', P_.red); sfx.eat(); }) };
@@ -164,6 +164,23 @@ function describe(t) {
       if (o.cocos <= 0) return { text: 'Кокосы ещё не созрели', bad: true };
       if (G.inv.coconut >= 3) return { text: 'Больше кокосов не унести', bad: true };
       return { text: 'Сорвать кокос (расколоть на наковальне камнем)', run: () => startAct('climb', 1.1, () => { o.cocos--; o.regrow = 0; G.inv.coconut++; floater(o.x, o.y, 3, '+кокос', P_.d3); SND.thud(o); }) };
+    case 'crate': case 'barrel': case 'boulder': {
+      const need = o.type === 'boulder' ? 3 : 1;
+      if (G.st.str.lv < need) return { text: 'Валун слишком тяжёлый (нужна Сила 3)', bad: true };
+      const dx = o.x - me.x, dy = o.y - me.y, ax = Math.abs(dx) > Math.abs(dy), sx = ax ? Math.sign(dx) : 0, sy = ax ? 0 : Math.sign(dy);
+      const tx = o.x + sx, ty = o.y + sy;
+      const ok = tx > 1 && ty > 1 && tx < N - 1 && ty < N - 1 && !W.blocked[Math.floor(ty) * N + Math.floor(tx)] && W.kind[Math.floor(ty) * N + Math.floor(tx)] !== K.WATER && groundAt(W, tx, ty) === groundAt(W, o.x, o.y);
+      if (!ok) return { text: 'Дальше не сдвинуть — там занято или обрыв', bad: true };
+      const name = { crate: 'ящик', barrel: 'бочку', boulder: 'валун' }[o.type];
+      return { text: `Толкнуть ${name} (строй баррикады — смотритель их обходит)`, run: () => startAct('push', o.type === 'boulder' ? 1.1 : .55, () => { moveObj(o, tx, ty); addXp('str'); SND.thud(o); emit(o.x, o.y, groundAt(W, o.x, o.y), 5, { kind: 'dust', spread: 1, v0: .3, v1: 1, g: 0, life: .5 }); G.cnt.pushes = (G.cnt.pushes || 0) + 1; }) };
+    }
+    case 'tire': if (o.held) return { text: 'Шину уже кто-то держит', bad: true };
+      return { text: 'Взять шину (держи ЛКМ — раскрутить, отпусти — бросить; E — положить)', run: () => startAct('eat', .4, () => { o.held = me.netId; G.carry = o; toast('Шина в руках: держи ЛКМ, чтобы раскрутить, отпусти — бросок'); }) };
+    case 'mud': return { text: 'Вываляться в грязи (маскировка 40 с: смотритель видит хуже)', run: () => startAct('dig', 1.2, () => { G.mudT = 40; SND.splat(me); emit(me.x, me.y, me.z + .5, 10, { col: [P_.d0, P_.d1], spread: 1, v0: .5, v1: 2, life: .6 }); toast('🟤 Измазался грязью: 40 с маскировки', 'good'); }) };
+    case 'hammock': if (o.cool > 0) return { text: 'Гамак ещё качается…', bad: true };
+      return { text: 'Отдохнуть в гамаке (+35 сил)', run: () => startAct('sleep', 3, () => { o.cool = 20; addEnergy(35); floater(me.x, me.y, me.z + 3, '+35 сил', P_.lime); sfx.ok(); }) };
+    case 'logpile': if (o.logs <= 0) return { text: 'Брёвна разобраны', bad: true };
+      return { text: 'Пошарить в брёвнах (палки, иногда лиана)', run: () => startAct('dig', .9, () => { o.logs--; o.regrow = 0; G.inv.stick = Math.min(5, G.inv.stick + 1); if (Math.random() < .35) { G.inv.vine = Math.min(2, G.inv.vine + 1); floater(o.x, o.y, 2, '+палка +лиана', P_.lime); } else floater(o.x, o.y, 2, '+палка', P_.d3); sfx.tick(); }) };
     case 'pond': return { text: 'Попить и набрать воды (инструмент 6)', run: () => startAct('drink', .9, () => { addEnergy(10); G.inv.water = 8; G.bladder = Math.min(120, G.bladder + 30); floater(me.x, me.y, me.z + 3, '+10 сил  вода 8', P_.w3); sfx.splash(); }) };
     case 'stage': {
       if (G.stageCool > 0) return { text: 'Публика отдыхает… ' + Math.ceil(G.stageCool) + 'с', bad: true };
@@ -238,6 +255,7 @@ function nearestInteractable() {
 }
 function interact() {
   const me = G.me; if (me.act || me.stun > 0 || me.tween) return;
+  if (G.carry) { const o = G.carry; moveObj(o, me.x + me.dx * .8, me.y + me.dy * .8); o.held = null; G.carry = null; toast('Шину положил'); return; }
   if (G.mini) { miniKey(null); return; }
   const t = nearestInteractable(); if (!t) return;
   const d = describe(t); if (d && d.run) d.run(); else if (d) sfx.bad();
@@ -249,7 +267,7 @@ const TOOLS = [
   { id: 'banana', name: 'Банан', icon: '🍌', throwable: true, ok: () => G.inv.banana > 0, fail: 'Нет бананов — сорви с пальмы (E)', use: t => throwItem('banana', t), count: () => G.inv.banana },
   { id: 'stone', name: 'Камень', icon: '🪨', throwable: true, ok: () => G.inv.stone > 0, fail: 'Нет камней — возьми из кучи (E)', use: t => throwItem('stone', t), count: () => G.inv.stone },
   { id: 'stick', name: 'Палка', icon: '🥢', ok: () => G.inv.stick > 0, fail: 'Нет палки — кусты и деревья (E)', use: t => useStick(t), count: () => G.inv.stick },
-  { id: 'vine', name: 'Лиана', icon: '🪢', ok: () => G.st.agi.lv >= 2 && G.vineCool <= 0, fail: () => G.st.agi.lv < 2 ? 'Лиана открывается с Ловкостью 2' : 'Лиана перезаряжается', use: t => useVine(t), count: () => G.st.agi.lv >= 2 ? '∞' : '🔒' },
+  { id: 'vine', name: 'Лиана: кнут по цели рядом / крюк на уступ', icon: '🪢', ok: () => G.inv.vine > 0 && G.vineCool <= 0, fail: () => G.inv.vine <= 0 ? 'Лианы нет — потряси деревья или пошарь в брёвнах' : 'Лиана перезаряжается', use: t => (t.ent && t.ent !== G.me && dist(t.ent, G.me) < 2.9 && !G.vis.includes(t.ent)) ? whip(t.ent) : (G.st.agi.lv < 2 ? toast('Крюк-лиана открывается с Ловкостью 2 (кнут — уже сейчас)', 'bad') : useVine(t)), count: () => G.inv.vine > 0 ? G.inv.vine + '·' + G.vineHP : '0' },
   { id: 'water', name: 'Вода', icon: '💦', throwable: true, range: 8, ok: () => G.inv.water > 0, fail: 'Нет воды — наберись у пруда (E)', use: t => squirt(t), count: () => G.inv.water },
   { id: 'mega', name: 'Мега-💩 (3 заряда, накрывает всех вокруг)', icon: '💥', throwable: true, range: 18, ok: () => G.inv.poop >= 3, fail: 'Для мега-снаряда нужно 3 заряда 💩', use: t => throwMega(t), count: () => Math.floor(G.inv.poop / 3) },
 ];
@@ -298,6 +316,42 @@ function scream() {
   me.screamCool = G.t + 5; me.heat = Math.max(me.heat, 4);
   startAct('hoot', .9, () => { SND.alarm(me); setTimeout(() => SND.alarm(me), 350); setTimeout(() => SND.scream(me), 600); floater(me.x, me.y, me.z + 3, 'ИИИ-А-А-А-А!!!', P_.red); emit(me.x, me.y, me.z + 3, 20, { kind: 'star', col: [P_.red, P_.white], spread: 3, v0: 0, v1: 2, g: 0, life: .8 }); netScream(me.x, me.y); });
 }
+function whip(ent) {
+  const me = G.me; G.vineCool = .8; setFacing(me, ent.x - me.x, ent.y - me.y); me.heat = Math.max(me.heat, 4);
+  startAct('whip', .35, () => {
+    G.whipFx = { x: ent.x, y: ent.y, z: (ent.rz ?? ent.z ?? 0) + 1.5, t: .3 }; SND.whoosh(me); setTimeout(() => SND.thud(ent), 120);
+    let tk = null, id = 0;
+    if (ent === G.keeper) tk = 'k'; else if (G.npcs.includes(ent)) { tk = 'n'; id = G.npcs.indexOf(ent); } else if (G.intruders.includes(ent)) { tk = 'i'; id = ent.id; } else if (G.players.includes(ent)) { tk = 'p'; id = ent.netId; }
+    if (tk) { if (isHost()) hostWhip(me, tk, id); else NET.send({ t: 'whip', tk, i: id }); }
+    G.vineHP--; if (G.vineHP <= 0) { G.inv.vine--; G.vineHP = 4; toast('🪢 Лиана порвалась от ударов! Новую ищи на деревьях и в брёвнах', 'bad'); }
+  });
+}
+function hostWhip(by, tk, id) {
+  if (tk === 'k') hitKeeper(by, 'whip', {});
+  else if (tk === 'n' && G.npcs[id]) hitNpc(by, 'whip', G.npcs[id], {});
+  else if (tk === 'i') hitIntruder(by, 'whip', G.intruders.find(i => i.id === id));
+  else if (tk === 'p') { const p = livePlayers().find(q => q.netId === id); if (p) hurtPlayer(p, { stun: .7, sfx: 'hit', fl: [p.x, p.y, p.z + 3, 'ХЛЕСТЬ!', P_.org] }); }
+}
+// шина: взять, раскрутить (держать ЛКМ), бросить
+function throwTire() {
+  const me = G.me, sp = G.spin, o = G.carry; G.spin = null; if (!o) return;
+  if (me.act && me.act.type === 'spin') me.act = null;
+  const ch = sp ? clamp(sp.t / 1.2, .15, 1) : .5, range = 3 + ch * 6 + G.st.str.lv * .6;
+  const from = { x: me.x, y: me.y, z: me.z + 1.4 }, sol = solveFrom(from, G.aim, range);
+  setFacing(me, G.aim.x - me.x, G.aim.y - me.y);
+  spawnProj('tire', me, sol, false, from); G.proj[G.proj.length - 1].obj = o; netProj('tire', me, sol);
+  G.carry = null; SND.whoosh(me); floater(me.x, me.y, me.z + 3, ch > .8 ? 'МОЩНЫЙ БРОСОК!' : 'бросок шины', P_.org);
+  if (G.tireXpT <= 0) { addXp('str'); addXp('agi'); G.tireXpT = 3; }
+  addScore(Math.round(ch * 10));
+}
+function buildShelter() {
+  const me = G.me; if (me.act || G.mini || me.stun > 0) return;
+  if (G.inv.stick < 3 || G.inv.stone < 2) { toast('Для шалаша нужно 3 палки и 2 камня', 'bad'); sfx.bad(); return; }
+  const x = me.x + me.dx * 1.1, y = me.y + me.dy * 1.1;
+  if (!tileFree(x, y) || Math.abs(groundAt(G.W, x, y) - me.z) > .5) { toast('Здесь не построить — нужно ровное свободное место', 'bad'); return; }
+  startAct('dig', 2.2, () => { G.inv.stick -= 3; G.inv.stone -= 2; if (isHost()) hostBuild(x, y); else NET.send({ t: 'build', x, y }); addXp('int'); addScore(15); toast('🛖 Шалаш построен на 2 минуты: внутри смотритель тебя не видит', 'good'); SND.thud(me); });
+}
+function hostBuild(x, y) { G.shelters.push({ id: ++G.pid, x: Math.floor(x) + .5, y: Math.floor(y) + .5, t: 120 }); }
 function hoot() {
   const me = G.me; if (G.state !== 'play' || me.act || me.stun > 0 || G.mini || me.tween || me.hootCool > 0) return;
   me.hootCool = 4; me.heat = Math.max(me.heat, 3);
@@ -362,9 +416,10 @@ addEventListener('keydown', e => {
   if (e.repeat) return;
   if (e.code === 'KeyE') interact();
   else if (e.code === 'KeyR') eatBanana();
-  else if (e.code === 'KeyF') useTool();
+  else if (e.code === 'KeyF') { if (G.carry) throwTire(); else useTool(); }
   else if (e.code === 'KeyQ') scream();
   else if (e.code === 'KeyY') duelAccept();
+  else if (e.code === 'KeyB') buildShelter();
   else if (/^Digit[1-7]$/.test(e.code)) { G.tool = +e.code.slice(5) - 1; sfx.tick(); }
 });
 addEventListener('keyup', e => G.keys.delete(e.code));
@@ -376,8 +431,9 @@ cv.addEventListener('contextmenu', e => e.preventDefault());
 cv.addEventListener('mousedown', e => {
   if (G.state !== 'play') return; setMouse(e);
   if (G.mini) { if (e.button === 0) miniKey(null); return; }
-  if (e.button === 0) useTool(); else if (e.button === 2) hoot();
+  if (e.button === 0) { if (G.carry && !G.me.act) { G.spin = { t: 0 }; G.me.act = { type: 'spin', t: 0, dur: 0, done: null }; } else useTool(); } else if (e.button === 2) hoot();
 });
+addEventListener('mouseup', e => { if (G.state === 'play' && e.button === 0 && G.spin) throwTire(); });
 addEventListener('wheel', e => { if (G.state !== 'play' || G.mini) return; G.tool = (G.tool + (e.deltaY > 0 ? 1 : TOOLS.length - 1)) % TOOLS.length; sfx.tick(); }, { passive: true });
 
 // прицел: курсор над существом «прилипает» к нему (иначе попасть по высоким спрайтам трудно)
@@ -414,7 +470,9 @@ function update(dt) {
   for (let i = G.floaters.length - 1; i >= 0; i--) { G.floaters[i].t += dt; if (G.floaters[i].t > 1.6) G.floaters.splice(i, 1); }
   for (let i = G.splats.length - 1; i >= 0; i--) { G.splats[i].t += dt; if (G.splats[i].t > 28) G.splats.splice(i, 1); }
   G.gateAnim = clamp(G.gateAnim + (G.gateOpen ? dt * 1.5 : 0), 0, 1);
-  if (G.boostT > 0) G.boostT -= dt;
+  if (G.boostT > 0) G.boostT -= dt; if (G.mudT > 0) G.mudT -= dt; if (G.tireXpT > 0) G.tireXpT -= dt; if (G.whipFx) { G.whipFx.t -= dt; if (G.whipFx.t <= 0) G.whipFx = null; }
+  if (G.spin) { G.spin.t += dt; if (G.spin.t > 2.5) throwTire(); }
+  if (host) { for (let i = G.shelters.length - 1; i >= 0; i--) { G.shelters[i].t -= dt; if (G.shelters[i].t <= 0) { G.shelters.splice(i, 1); logEv('🛖', 'Шалаш развалился'); } } for (const o of W.objs) if (o.type === 'logpile' && o.logs < 4) { o.regrow += dt; if (o.regrow > 40) { o.logs++; o.regrow = 0; } } }
   if (host) for (const o of W.objs) if (o.type === 'coco_palm' && o.cocos < 2) { o.regrow += dt; if (o.regrow > 45) { o.cocos++; o.regrow = 0; } }
   // писать (V): струя туда, куда смотрит прицел
   const peeKey = G.keys.has('KeyV');
@@ -533,7 +591,7 @@ $('needLv').textContent = NEED_SUM;
 // мини-карта
 const MM = 2; let miniBase = null;
 function buildMinimap() {
-  miniBase = mkCanvas(N * MM, N * MM); const c = miniBase.getContext('2d'), W = G.W;
+  miniBase = mkCanvas(N * MM, N * MM); $('minimap').width = N * MM; $('minimap').height = N * MM; const c = miniBase.getContext('2d'), W = G.W;
   const col = { [K.GRASS]: '#58a84c', [K.DIRT]: '#bf8a50', [K.ROCK]: '#8486a0', [K.SAND]: '#dcbc78', [K.WATER]: '#3f84d0', [K.DECK]: '#966638', [K.COBBLE]: '#a8aac0' };
   for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) { const i = y * N + x; c.fillStyle = col[W.kind[i]]; c.fillRect(x * MM, y * MM, MM, MM); if (W.h[i] > 0 && W.kind[i] !== K.DECK) { c.fillStyle = `rgba(255,255,255,${Math.min(.5, W.h[i] * .1)})`; c.fillRect(x * MM, y * MM, MM, MM); } if (W.blocked[i] && W.kind[i] !== K.COBBLE) { c.fillStyle = '#2c6638'; c.fillRect(x * MM, y * MM, MM, MM); } }
 }
@@ -550,7 +608,7 @@ function updateHud() {
   QUESTS.forEach((q, i) => { qEls[i].classList.toggle('done', q.done); qEls[i].lastChild.textContent = q.done ? '✔' : `${Math.min(q.get(), q.goal)}/${q.goal}`; });
   ACHS.forEach((a, i) => aEls[i].classList.toggle('on', a.on));
   const k = G.keeper, ks = { patrol: ['👁 патруль', ''], suspicious: ['👁 ищет!', 'warn'], chase: ['👁 ПОГОНЯ!', 'alarm'], stunned: ['👁 оглушён', 'ok'], tohut: ['👁 идёт спать', 'ok'], sleep: ['💤 спит', 'ok'] }[k.state] || ['👁 ?', ''];
-  const ds = dirtSlow(); $('dayInfo').innerHTML = '📅 ' + Math.min(G.day, DAYS) + '/' + DAYS + ' · ' + (isNight() ? '🌙' : '☀') + ' ' + clockStr() + (ds ? ' · <span class="ks alarm">💩 −' + Math.round(ds * 100) + '%</span>' : '') + (G.boostT > 0 ? ' · 🥥 ' + Math.ceil(G.boostT) + 'с' : '') + ' · 🚽 ' + Math.round(G.bladder) + '%' + (G.diarrheaT > 0 ? ' · <span class="ks alarm">🤢 ' + Math.ceil(G.diarrheaT) + 'с</span>' : '');
+  const ds = dirtSlow(); $('dayInfo').innerHTML = '📅 ' + Math.min(G.day, DAYS) + '/' + DAYS + ' · ' + (isNight() ? '🌙' : '☀') + ' ' + clockStr() + (ds ? ' · <span class="ks alarm">💩 −' + Math.round(ds * 100) + '%</span>' : '') + (G.boostT > 0 ? ' · 🥥 ' + Math.ceil(G.boostT) + 'с' : '') + ' · 🚽 ' + Math.round(G.bladder) + '%' + (G.diarrheaT > 0 ? ' · <span class="ks alarm">🤢 ' + Math.ceil(G.diarrheaT) + 'с</span>' : '') + (G.mudT > 0 ? ' · 🟤 ' + Math.ceil(G.mudT) + 'с' : '') + (inShelter(G.me) ? ' · 🛖 укрыт' : '') + (G.carry ? ' · 🛞 шина' + (G.spin ? ' ' + Math.round(clamp(G.spin.t / 1.2, 0, 1) * 100) + '%' : '') : '');
   $('escapeInfo').innerHTML = `<span class="ks ${ks[1]}">${ks[0]}</span> · 🗝 ${G.hasKey ? '✔' : '✘'} · уровни ${lvSum()}/${NEED_SUM}${G.combo > 1 ? ' · 🔥×' + Math.min(3, G.combo) : ''}`;
   TOOLS.forEach((t, i) => { slotEls[i].classList.toggle('sel', i === G.tool); slotEls[i].classList.toggle('off', !t.ok()); slotEls[i].querySelector('em').textContent = t.count(); });
   $('seedInfo').textContent = '🌱 ' + G.W.seed; drawMinimap();

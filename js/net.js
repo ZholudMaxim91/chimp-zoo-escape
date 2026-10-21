@@ -87,10 +87,11 @@ function netClose() { try { NET.tr && NET.tr.close(); } catch (e) { } NET.tr = n
 function clientLost() { NET.lost = true; if (G.state === 'play') { G.state = 'lost'; $('lostBox').style.display = 'flex'; } }
 
 // ── объекты: синхронизация изменений (разница) ──
-const DYN = ['bananas', 'sticks', 'berries', 'stones', 'nuts', 'hp', 'dug', 'opened', 'cocos'], TRANS = ['cool', 'active', 'ring', 'boostCool'];
-function objDyn(o) { const r = {}; for (const f of DYN) if (o[f] !== undefined) r[f] = o[f]; return r; }
+const DYN = ['bananas', 'sticks', 'berries', 'stones', 'nuts', 'hp', 'dug', 'opened', 'cocos', 'logs', 'held', 'x', 'y'], TRANS = ['cool', 'active', 'ring', 'boostCool'];
+const MOVABLE = ['crate', 'barrel', 'boulder', 'tire'];
+function objDyn(o) { const r = {}; for (const f of DYN) { if ((f === 'x' || f === 'y') && !MOVABLE.includes(o.type)) continue; if (o[f] !== undefined) r[f] = o[f]; } return r; }
 function allObjDyn() { const r = {}; for (const o of G.W.objs) { const d = objDyn(o); if (Object.keys(d).length) r[o.id] = d; } return r; }
-function applyObj(o, f) { for (const k in f) { if (TRANS.includes(k)) { o[k] = Math.max(o[k] || 0, f[k]); o['_l' + k] = o[k]; } else o[k] = f[k]; } NET.last.set(o.id, JSON.stringify(objDyn(o))); }
+function applyObj(o, f) { if (('x' in f && f.x !== o.x) || ('y' in f && f.y !== o.y)) moveObj(o, f.x ?? o.x, f.y ?? o.y); for (const k in f) { if (k === 'x' || k === 'y') continue; if (TRANS.includes(k)) { o[k] = Math.max(o[k] || 0, f[k]); o['_l' + k] = o[k]; } else o[k] = f[k]; } NET.last.set(o.id, JSON.stringify(objDyn(o))); }
 function objDiffTick() {
   for (const o of G.W.objs) {
     const d = objDyn(o); const s = JSON.stringify(d), prev = NET.last.get(o.id); let f = null;
@@ -108,6 +109,7 @@ function buildSnap() {
     pl: livePlayers().map(p => ({ id: p.netId, x: r2(p.me ? p.x : p.x), y: r2(p.y), z: r2(p.z), fx: p.fx, fb: p.fb ? 1 : 0, mv: p.moving ? 1 : 0, sp: p.sprint ? 1 : 0, cr: p.crouch ? 1 : 0, a: p.act ? p.act.type : '', n: p.name, fu: p.fur.id, sc: p.me ? G.score : (p.score || 0), lv: p.me ? lvSum() : (p.lv || 4), hr: p.me ? hoolRank() : (p.hr || 0), hp: p.me ? hoolPts() : (p.hp || 0), sl: p.splat > 0 ? 1 : 0, iv: p.invuln > 0 ? 1 : 0, dp: p.dirtP || 0, db: p.dirtB || 0 })),
     k: { x: r2(k.x), y: r2(k.y), z: r2(k.z), fx: k.fx, fb: k.fb ? 1 : 0, mv: k.moving ? 1 : 0, st: k.state, dx: r2(k.dx), dy: r2(k.dy), hk: k.hasKey ? 1 : 0, vr: k.visRange },
     n: G.npcs.map(n => { const s = { x: r2(n.x), y: r2(n.y), z: r2(n.z), fx: n.fx, fb: n.fb ? 1 : 0, mv: n.moving ? 1 : 0 }; if (n.sp === 'chimp') Object.assign(s, { b: Math.round(n.bond), f: n.friend ? 1 : 0, w: n.want ? 1 : 0, m: n.mood || 0, bc: Math.round(n.boostCool * 10) / 10, g: n.gang || 0, l: Math.round(n.loyal), a: n.act || 0, c: n.carry ? 1 : 0, h: n.hool || 0 }); else if (n.sp === 'troop') s.fl = n.fleeT > 0 ? 1 : 0; else if (n.sp === 'gorilla') Object.assign(s, { st: n.state, a: n.act || '' }); else if (n.sp === 'parrot') Object.assign(s, { fl: n.flying ? 1 : 0, sy: n.sayT > 0 ? n.say : '' }); return s; }),
+    sh: G.shelters.map(s => [s.id, s.x, s.y, Math.round(s.t)]),
     it: G.intruders.map(i => [i.id, r2(i.x), r2(i.y), r2(i.z), i.state, i.from, i.act || 0, i.emo ? i.emo.s : '']),
     v: G.vis.map(v => [v.on ? 1 : 0, v.cheer > 0 ? 1 : 0, v.splat > 0 ? 1 : 0, v.emo ? v.emo.s : '']),
     pk: G.pickups.map(p => [p.id, p.type, r2(p.x), r2(p.y), r2(p.z), p.fly ? r2(p.fly.t) : -1, p.fly ? r2(p.fly.sx) : 0, p.fly ? r2(p.fly.sy) : 0, p.fly ? p.fly.fl : 0]),
@@ -132,6 +134,7 @@ function applySnap(m) {
     if (n.sp === 'chimp') { n.bond = s.b; n.friend = !!s.f; n.want = !!s.w; n.mood = s.m || null; n.boostCool = s.bc; n.gang = s.g || null; n.loyal = s.l; n.act = s.a || null; n.carry = !!s.c; n.hool = s.h; } else if (n.sp === 'troop') n.fleeT = s.fl ? 1 : 0;
     else if (n.sp === 'gorilla') { n.state = s.st; n.act = s.a; } else if (n.sp === 'parrot') { n.flying = !!s.fl; n.say = s.sy; n.sayT = s.sy ? 1 : 0; }
   });
+  if (m.sh) G.shelters = m.sh.map(a => ({ id: a[0], x: a[1], y: a[2], t: a[3] }));
   // смельчаки в вольере
   if (m.it) { const old = new Map(G.intruders.map(i => [i.id, i])); G.intruders = m.it.map(a => { const o = old.get(a[0]) || mk({ id: a[0], x: a[1], y: a[2], z: a[3], rz: a[3] }); o.nx = a[1]; o.ny = a[2]; o.z = a[3]; o.state = a[4]; o.from = a[5]; o.act = a[6] || null; if (a[7] && (!o.emo || o.emo.s !== a[7])) o.emo = { t: 1.5, s: a[7] }; return o; }); }
   // зрители
@@ -162,11 +165,13 @@ function hostOnMsg(from, m) {
       G.players.push(p); NET.sendTo(from, { t: 'welcome', seed: G.W.seed, you: from, name, fur, objs: allObjDyn(), snap: buildSnap() });
       toast(`${name} присоединился к игре`, 'good'); sfx.ok(); break;
     }
-    case 'p': if (!pl) return; pl.tx = m.x; pl.ty = m.y; pl.tz = m.z; pl.fx = m.fx; pl.fb = !!m.fb; pl.moving = !!m.mv; pl.sprint = !!m.sp; pl.crouch = !!m.cr; pl.act = m.a ? { type: m.a, t: 0, dur: 0 } : null; pl.score = m.sc; pl.lv = m.lv; pl.bn = m.bn; pl.heat = m.ht ? 3 : 0; pl.tween = m.tw ? {} : null; pl.splat = m.spl; pl.invuln = m.iv ? 1 : 0; pl.ch = m.ch; pl.hr = m.hr; pl.hp = m.hp; pl.dirtP = m.dp; pl.dirtB = m.db; break;
+    case 'p': if (!pl) return; pl.tx = m.x; pl.ty = m.y; pl.tz = m.z; pl.fx = m.fx; pl.fb = !!m.fb; pl.moving = !!m.mv; pl.sprint = !!m.sp; pl.crouch = !!m.cr; pl.act = m.a ? { type: m.a, t: 0, dur: 0 } : null; pl.score = m.sc; pl.lv = m.lv; pl.bn = m.bn; pl.heat = m.ht ? 3 : 0; pl.tween = m.tw ? {} : null; pl.splat = m.spl; pl.invuln = m.iv ? 1 : 0; pl.ch = m.ch; pl.hr = m.hr; pl.hp = m.hp; pl.mud = m.md; pl.dirtP = m.dp; pl.dirtB = m.db; break;
     case 'obj': { const o = G.W.objs.find(o => o.id === m.id); if (o) { applyObj(o, m.f); NET.bcast({ t: 'obj', id: m.id, f: m.f }, from); } break; }
     case 'hit': if (pl) hostHit(pl, m.k, m.tk, m.i, { x: m.x, y: m.y, z: m.z }); break;
     case 'sp': addPickup({ ...m.p, age: 0 }); break;
     case 'noise': noiseAt(m.x, m.y, m.r, m.why); break;
+    case 'whip': if (pl) hostWhip(pl, m.tk, m.i); break;
+    case 'build': hostBuild(m.x, m.y); break;
     case 'gangThrow': if (pl) hostGangThrow(pl, { x: m.x, y: m.y, z: m.z }); break;
     case 'mega': if (pl) megaSplash(pl, m.x, m.y); break;
     case 'scream': if (pl) hostScream(pl, m.x, m.y); break;
@@ -230,7 +235,7 @@ function netTick(dt) {
   } else {
     NET.accP += dt; if (NET.accP > .07) {
       NET.accP = 0; const p = G.me;
-      NET.send({ t: 'p', x: r2(p.x), y: r2(p.y), z: r2(p.z), fx: p.fx, fb: p.fb ? 1 : 0, mv: p.moving ? 1 : 0, sp: p.sprint ? 1 : 0, cr: p.crouch ? 1 : 0, a: p.act ? p.act.type : '', sc: G.score, lv: lvSum(), bn: G.inv.banana, ht: p.heat > 0 ? 1 : 0, tw: p.tween ? 1 : 0, spl: p.splat > 0 ? 1 : 0, iv: p.invuln > 0 ? 1 : 0, ch: G.st.cha.lv, hr: hoolRank(), hp: hoolPts(), dp: p.dirtP || 0, db: p.dirtB || 0 });
+      NET.send({ t: 'p', x: r2(p.x), y: r2(p.y), z: r2(p.z), fx: p.fx, fb: p.fb ? 1 : 0, mv: p.moving ? 1 : 0, sp: p.sprint ? 1 : 0, cr: p.crouch ? 1 : 0, a: p.act ? p.act.type : '', sc: G.score, lv: lvSum(), bn: G.inv.banana, ht: p.heat > 0 ? 1 : 0, tw: p.tween ? 1 : 0, spl: p.splat > 0 ? 1 : 0, iv: p.invuln > 0 ? 1 : 0, ch: G.st.cha.lv, hr: hoolRank(), hp: hoolPts(), md: G.mudT > 0 ? 1 : 0, dp: p.dirtP || 0, db: p.dirtB || 0 });
     }
   }
 }

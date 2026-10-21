@@ -83,12 +83,16 @@ function gangAI(n, dt) {
     if (trees.length) { n.fetch = { tree: pick(trees), got: false }; logEv('🍌', `${n.name} побежал за бананом для тебя`); }
   }
   if (n.fetch) {
-    const f = n.fetch;
-    if (!f.got) { if (goTo(n, f.tree.x, f.tree.y + .9, dt, 3.0, { noWater: true }) || Math.hypot(n.x - f.tree.x, n.y - f.tree.y) < 1.4) { if (f.tree.bananas > 0) { f.tree.bananas--; f.tree.regrow = 0; f.got = true; n.carry = true; n.act = 'eat'; n.actT = .5; } else { n.fetch = null; n.fetchCool = 10; } } }
-    else if (goTo(n, owner.x, owner.y, dt, 3.2, { noWater: true }) || dist(n, owner) < 1.3) {
+    const f = n.fetch; f.t = (f.t || 0) + dt;
+    const follow = (goal) => { if (!f.path) f.path = findPath(G.W, n, goal) || []; const nx = f.path[0]; if (nx) { if (goTo(n, nx.x, nx.y, dt, 3.0, { noWater: true })) f.path.shift(); return false; } return goTo(n, goal.x, goal.y, dt, 3.0, { noWater: true }) || Math.hypot(n.x - goal.x, n.y - goal.y) < 1.3; };
+    if (f.t > 30) { n.fetch = null; n.carry = false; n.fetchCool = 15; return; }
+    if (!f.got) {
+      if (!f.spot) { f.spot = spotNear(f.tree, 1.1); if (!f.spot) { n.fetch = null; n.fetchCool = 10; return; } }
+      if (follow(f.spot)) { if (f.tree.bananas > 0) { f.tree.bananas--; f.tree.regrow = 0; f.got = true; f.path = null; n.carry = true; n.act = 'eat'; n.actT = .5; } else { n.fetch = null; n.fetchCool = 10; } }
+    } else if (dist(n, owner) < 1.4 || follow({ x: owner.x, y: owner.y })) {
       n.carry = false; n.fetch = null; n.fetchCool = 25; n.loyal = Math.min(100, n.loyal + 5);
       if (owner.me) giftToMe('banana', n.name); else NET.sendTo(owner.netId, { t: 'ev', ev: 'gift', item: 'banana', name: n.name });
-    }
+    } else if (f.got && (f.rp = (f.rp || 0) + dt) > 2) { f.rp = 0; f.path = null; }
     return;
   }
   const idx = gangOf(n.gang).indexOf(n), a = idx * 1.3 + 2.4, tx = owner.x + Math.cos(a) * 1.6, ty = owner.y + Math.sin(a) * 1.6, d = Math.hypot(tx - n.x, ty - n.y);
@@ -164,8 +168,8 @@ function updateIntruders(dt) {
 function nearestEdge(e) { const c = [{ x: e.x, y: -.5 }, { x: -.5, y: e.y }, { x: e.x, y: N + .5 }]; return c.sort((a, b) => dist(a, e) - dist(b, e))[0]; }
 function hitIntruder(by, kind, it) {
   if (!it || it.state !== 'wander') return;
-  if (kind === 'poop' || kind === 'pee' || kind === 'stone' || kind === 'mega') {
-    it.hp -= kind === 'mega' ? 3 : 1; it.lastBy = by; it.emo = { t: 1.5, s: it.hp > 0 ? 'ЭЙ!' : 'БЕГУ!' };
+  if (kind === 'poop' || kind === 'pee' || kind === 'stone' || kind === 'mega' || kind === 'tire' || kind === 'whip') {
+    it.hp -= kind === 'mega' || kind === 'tire' ? 3 : 1; it.lastBy = by; it.emo = { t: 1.5, s: it.hp > 0 ? 'ЭЙ!' : 'БЕГУ!' };
     reward(by, { score: 5, fl: [it.x, it.y, it.z + 3, it.hp > 0 ? 'ещё ' + it.hp : 'ВЫГНАЛ!', P_.org] });
     if (it.hp <= 0) { it.state = 'flee'; reward(by, { score: 40, cnt: { intruders: 1 }, toast: ['🏃 Ты выгнал смельчака из вольера! +40', 'good'], sfx: 'up' }); }
   }
