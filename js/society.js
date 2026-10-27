@@ -32,7 +32,7 @@ function aiChimp2(n, dt) {
   if (n.mood && (n.moodT -= dt) <= 0) n.mood = null;
   if (n.actT > 0) { n.actT -= dt; if (n.actT <= 0) n.act = null; }
   const me = nearestPlayer(n); if (!me) return; const dme = dist(n, me);
-  if (n.fleeT > 0) { n.fleeT -= dt; n.act = null; n.goal = null; stepEntity(n, (n.x - me.x) / (dme || 1), (n.y - me.y) / (dme || 1), dt, 3.2, { noWater: true }); return; }
+  if (n.fleeT > 0) { n.fleeT -= dt; n.act = null; n.goal = null; stepAround(n, n.x - me.x, n.y - me.y, dt, 3.2, { noWater: true }); return; }
   if (n.gang) { gangAI(n, dt); return; }
   const b = nearestPickup(n, 'banana', 9);
   if (b && !isNight()) { n.act = null; if (goTo(n, b.x, b.y, dt, 2.4, { noWater: true }) || dist(n, b) < .6) { eatPickup(n, b); n.bond = Math.min(100, n.bond + 18); n.mood = 'happy'; n.moodT = 2; n.act = 'eat'; n.actT = 1; checkBond(n, nearestPlayer(b)); } return; }
@@ -52,8 +52,8 @@ function routineAI(n, dt) {
   if (!n.goal) { n.act = null; wander(n, dt, 1.2, 7); return; }
   const d = Math.hypot(n.goal.x - n.x, n.goal.y - n.y);
   if (d > .5) {
-    const px = n.x, py = n.y; n.act = null; goTo(n, n.goal.x, n.goal.y, dt, slot === 'sleep' ? 1.6 : 1.3, { noWater: true });
-    n.stuckR = (Math.abs(n.x - px) + Math.abs(n.y - py) < .001) ? (n.stuckR || 0) + dt : 0; if (n.stuckR > 1.5) { n.goal = null; n.stuckR = 0; }
+    const px = n.x, py = n.y; n.act = null; if (goTo(n, n.goal.x, n.goal.y, dt, slot === 'sleep' ? 1.6 : 1.3, { noWater: true })) { n.goal.x = n.x; n.goal.y = n.y; }   // ближе не подойти — делаем дело здесь
+    n.stuckR = Math.hypot(n.x - px, n.y - py) < .3 * dt ? (n.stuckR || 0) + dt : 0; if (n.stuckR > 1.5) { n.goal = null; n.stuckR = 0; }
     return;
   }
   n.moving = false; n.loopT += dt; n.act = n.goal.act;
@@ -131,9 +131,9 @@ function newTroop(W) {
 function aiTroop(n, dt) {
   if (n.stealCool > 0) n.stealCool -= dt;
   const me = nearestPlayer(n); if (!me) return; const dme = dist(n, me);
-  if (n.fleeT > 0) { n.fleeT -= dt; stepEntity(n, (n.x - me.x) / (dme || 1), (n.y - me.y) / (dme || 1), dt, 4.5, { noWater: true, r: .5 }); return; }
+  if (n.fleeT > 0) { n.fleeT -= dt; stepAround(n, n.x - me.x, n.y - me.y, dt, 4.5, { noWater: true, r: .4 }); return; }
   let food = null, fd = 9; for (const p of G.pickups) if (!p.fly && ['banana', 'peanut', 'nut'].includes(p.type)) { const d = dist(n, p); if (d < fd) { fd = d; food = p; } }
-  if (food) { if (goTo(n, food.x, food.y, dt, 3.6, { noWater: true, r: .5 }) || fd < .7) { eatPickup(n, food); logEv('🐒', 'Мартышки утащили еду с земли'); SND.monkey(n); } return; }
+  if (food) { if (goTo(n, food.x, food.y, dt, 3.6, { noWater: true, r: .4 }) || fd < .7) { eatPickup(n, food); logEv('🐒', 'Мартышки утащили еду с земли'); SND.monkey(n); } return; }
   if (dme < 1.4 && bananasOf(me) > 0 && n.stealCool <= 0 && !me.tween) {
     n.stealCool = 30; n.fleeT = 3; SND.monkey(n);
     hurtPlayer(me, { loseOne: 'banana', toast: ['🐒 Мартышки стащили у тебя банан!', 'bad'], fl: [me.x, me.y, me.z + 3, '−банан', P_.red] });

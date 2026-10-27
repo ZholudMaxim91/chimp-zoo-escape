@@ -5,7 +5,8 @@
 const GRAV = 16, GP = 12;           // гравитация для прыжков и для брошенных предметов (ярусов/с²)
 const STEP = 1.02;                  // на сколько ярусов можно «шагнуть» вверх без прыжка
 
-function walkableAt(W, x, y, z, r = .28, step = STEP, noWater = false, gateOk = false) {
+const trunkAt = (W, i) => (W.trunkR ? W.trunkR[i] || .3 : .3);
+function walkableAt(W, x, y, z, r = .28, step = STEP, noWater = false, gateOk = false, trunks = true, maxDrop = 99) {
   for (const [px, py] of [[x - r, y - r], [x + r, y - r], [x - r, y + r], [x + r, y + r]]) {
     const tx = Math.floor(px), ty = Math.floor(py);
     if (tx < 0 || ty < 0 || tx >= N || ty >= N) {
@@ -14,16 +15,26 @@ function walkableAt(W, x, y, z, r = .28, step = STEP, noWater = false, gateOk = 
     }
     const i = ty * N + tx;
     if (W.blocked[i] === 1) return false;
-    if (W.blocked[i] === 2 && Math.hypot(x - tx - .5, y - ty - .5) < (W.trunkR ? W.trunkR[i] || .3 : .3) + r) return false;
+    if (W.blocked[i] === 2 && trunks && Math.hypot(x - tx - .5, y - ty - .5) < trunkAt(W, i) + r) return false;
     if (noWater && W.kind[i] === K.WATER) return false;
     if (W.h[i] > z + step) return false;
   }
+  if (maxDrop < 99 && groundAt(W, x, y) < z - maxDrop) return false;   // спрыгнуть: решает клетка под центром
   return true;
 }
+// стволы круглые: не упираемся в них, а выталкиваемся по нормали — так существо скользит вокруг дерева
+function trunkPush(W, e, r) {
+  const cx = Math.floor(e.x), cy = Math.floor(e.y);
+  for (let ty = cy - 1; ty <= cy + 1; ty++) for (let tx = cx - 1; tx <= cx + 1; tx++) {
+    if (tx < 0 || ty < 0 || tx >= N || ty >= N || W.blocked[ty * N + tx] !== 2) continue;
+    const R = trunkAt(W, ty * N + tx) + r + 1e-3, dx = e.x - tx - .5, dy = e.y - ty - .5, d = Math.hypot(dx, dy);
+    if (d < R) { if (d < 1e-4) { e.x = tx + .5 + R; } else { e.x = tx + .5 + dx / d * R; e.y = ty + .5 + dy / d * R; } }
+  }
+}
 // если существо оказалось внутри препятствия (телепорт, приземление, сдвинутый ящик) — выталкиваем к ближайшему свободному месту
-function unstick(e) {
-  if (walkableAt(G.W, e.x, e.y, e.z + .05, .28, STEP, false, true)) return false;
-  for (let r = .2; r < 4; r += .2) for (let a = 0; a < 6.28; a += .4) { const x = e.x + Math.cos(a) * r, y = e.y + Math.sin(a) * r; if (walkableAt(G.W, x, y, groundAt(G.W, x, y), .28)) { e.x = x; e.y = y; if (e.z < groundAt(G.W, x, y)) e.z = groundAt(G.W, x, y); return true; } }
+function unstick(e, rad = .28) {
+  if (walkableAt(G.W, e.x, e.y, e.z + .05, rad, STEP, false, true)) return false;
+  for (let r = .2; r < 4; r += .2) for (let a = 0; a < 6.28; a += .4) { const x = e.x + Math.cos(a) * r, y = e.y + Math.sin(a) * r; if (walkableAt(G.W, x, y, groundAt(G.W, x, y), rad)) { e.x = x; e.y = y; if (e.z < groundAt(G.W, x, y)) e.z = groundAt(G.W, x, y); e.nav = null; return true; } }
   return false;
 }
 function setFacing(e, dx, dy) {
@@ -32,13 +43,29 @@ function setFacing(e, dx, dy) {
   if (Math.abs(sxn) > .05) e.fx = sxn > 0 ? 1 : -1; if (Math.abs(syn) > .05) e.fb = syn > 0;
 }
 function stepEntity(e, dx, dy, dt, speed, o = {}) {
-  const W = G.W, sp = speed * dt, r = o.r ?? .28;
-  let moved = false;
-  const nx = e.x + dx * sp, ny = e.y + dy * sp;
-  if (walkableAt(W, nx, e.y, e.z, r, STEP, o.noWater, o.gateOk)) { e.x = nx; moved = true; }
-  if (walkableAt(W, e.x, ny, e.z, r, STEP, o.noWater, o.gateOk)) { e.y = ny; moved = true; }
+  const W = G.W, sp = speed * dt, r = o.r ?? e.rad ?? .28, ox = e.x, oy = e.y;
+  if (o.noWater && !walkableAt(W, ox, oy, e.z + .05, r, STEP, true, o.gateOk)) o = { ...o, noWater: false };   // уже в воде (закинули) — пусть выбирается
+  // стены и обрывы — по осям (скольжение вдоль стены), стволы — выталкиванием (скольжение вокруг дерева)
+  const nx = e.x + dx * sp, ny = e.y + dy * sp, drop = e.me || !e.grounded || G.t < (e.dropOk || 0) ? 99 : 1.05;
+  if (walkableAt(W, nx, e.y, e.z, r, STEP, o.noWater, o.gateOk, false, drop)) e.x = nx;
+  if (walkableAt(W, e.x, ny, e.z, r, STEP, o.noWater, o.gateOk, false, drop)) e.y = ny;
+  if (e.x !== ox || e.y !== oy) {
+    trunkPush(W, e, r); trunkPush(W, e, r);
+    if (!walkableAt(W, e.x, e.y, e.z, r, STEP, o.noWater, o.gateOk)) { e.x = ox; e.y = oy; }
+  }
+  const moved = Math.abs(e.x - ox) + Math.abs(e.y - oy) > 1e-5;
   e.moving = moved; if (moved) setFacing(e, dx, dy);
   return moved;
+}
+// шаг «куда-нибудь в эту сторону»: если прямо нельзя — пробуем отклониться (бегство, толчки)
+function stepAround(e, dx, dy, dt, speed, o = {}) {
+  const l = Math.hypot(dx, dy) || 1; dx /= l; dy /= l;
+  for (const a of [0, .6, -.6, 1.2, -1.2, 1.9, -1.9]) {
+    const c = Math.cos(a), s = Math.sin(a), px = e.x, py = e.y;
+    stepEntity(e, dx * c - dy * s, dx * s + dy * c, dt, speed, o);
+    if (Math.hypot(e.x - px, e.y - py) > speed * dt * .3) return true;
+  }
+  return false;
 }
 function physics(e, dt) {
   if (e.tween) return;
@@ -53,12 +80,52 @@ function physics(e, dt) {
 const mk = o => Object.assign({ x: 0, y: 0, z: 0, rz: 0, vz: 0, grounded: true, fx: 1, fb: true, moving: false, dx: 1, dy: 0, t: 0 }, o);
 function tileFree(x, y, noWater = true) { const W = G.W, tx = Math.floor(x), ty = Math.floor(y); return tx > 0 && ty > 0 && tx < N - 1 && ty < N - 1 && !W.blocked[ty * N + tx] && (!noWater || W.kind[ty * N + tx] !== K.WATER); }
 function randomNear(e, r, tries = 12) { for (let i = 0; i < tries; i++) { const a = rnd(0, 6.28), d = rnd(2, r), x = e.hx + Math.cos(a) * d, y = e.hy + Math.sin(a) * d; if (tileFree(x, y) && Math.abs(groundAt(G.W, x, y) - e.z) <= 1.01) return { x, y }; } return null; }
-function goTo(e, tx, ty, dt, speed, o = {}) { const dx = tx - e.x, dy = ty - e.y, d = Math.hypot(dx, dy); if (d < .15) { e.moving = false; return true; } stepEntity(e, dx / d, dy / d, dt, speed, o); return false; }
+// идти к точке: напрямую, а если упёрлись (угол стены, обрыв, роща) — в обход по клеткам.
+// Цель недостижима — идём к ближайшему достижимому месту и считаем, что пришли.
+function goTo(e, tx, ty, dt, speed, o = {}) {
+  if (Math.hypot(tx - e.x, ty - e.y) < .15) { e.moving = false; e.nav = null; return true; }
+  const nf = e.navFail; if (nf && G.t - nf.t < 2 && Math.hypot(nf.x - tx, nf.y - ty) < .8) { e.moving = false; return true; }   // недавно выяснили: ближе не подойти
+  let nv = e.nav, gx = tx, gy = ty;
+  if (nv && (nv.t += dt) > 10) nv = e.nav = null;
+  if (nv && Math.hypot(nv.tx - tx, nv.ty - ty) > 1.5 && G.t > (e.navCool || 0)) nv = e.nav = null;   // цель ушла — проложим заново
+  const near = Math.max(.07, .48 - (o.r ?? e.rad ?? .28));   // крупным — точнее по центру клетки, иначе цепляют углы
+  if (nv) { while (nv.path.length && Math.hypot(nv.path[0].x - e.x, nv.path[0].y - e.y) < near) nv.path.shift(); if (nv.path.length) { gx = nv.path[0].x; gy = nv.path[0].y; } else nv = e.nav = null; }
+  const l = Math.hypot(gx - e.x, gy - e.y) || 1;
+  stepAround(e, (gx - e.x) / l, (gy - e.y) / l, dt, speed, o);
+  // окно прогресса: за 0,4 с не приблизились к точке хотя бы на треть возможного — уткнулись (или дёргаемся на месте)
+  const pw = e.pw || (e.pw = { s: 0, t: 0 }); pw.s += l - Math.hypot(gx - e.x, gy - e.y); pw.t += dt;
+  let blocked = false; if (pw.t > .4) { blocked = pw.s < speed * pw.t * .3; pw.s = pw.t = 0; }
+  if (blocked && G.t > (e.navCool || 0)) {
+    e.navCool = G.t + .5;
+    const r = navPath(G.W, e, tx, ty, !!o.noWater);
+    if (!r.exact && !r.path.length) { e.nav = null; e.moving = false; e.navFail = { x: tx, y: ty, t: G.t }; e.dropOk = G.t + 4; return true; }   // по уступам не пройти — разрешаем спрыгнуть
+    e.nav = { path: r.path, tx, ty, t: 0 };
+  }
+  return false;
+}
+// путь по клеткам к цели или (если она за обрывом/в воде) к ближайшей достижимой клетке
+function navPath(W, from, tx, ty, noWater = true) {
+  const sx = clamp(Math.floor(from.x), 0, N - 1), sy = clamp(Math.floor(from.y), 0, N - 1), gx = Math.floor(tx), gy = Math.floor(ty), s = sy * N + sx;
+  const ok = i => { const x = i % N, y = (i / N) | 0; return x > 0 && y > 0 && x < N - 1 && y < N - 1 && !W.blocked[i] && (!noWater || W.kind[i] !== K.WATER); };
+  const prev = new Int32Array(N * N).fill(-1), q = [s]; prev[s] = s;
+  let best = s, bd = Math.hypot(sx - gx, sy - gy);
+  for (let qi = 0; qi < q.length; qi++) {
+    const c = q[qi], cx = c % N, cy = (c / N) | 0, d = Math.hypot(cx - gx, cy - gy);
+    if (d < bd) { bd = d; best = c; } if (d === 0) break;
+    for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+      const x = cx + dx, y = cy + dy, i = y * N + x; if (x < 0 || y < 0 || x >= N || y >= N || prev[i] >= 0 || !ok(i) || Math.abs(W.h[i] - W.h[c]) > 1) continue;
+      prev[i] = c; q.push(i);
+    }
+  }
+  const path = []; for (let c = best; c !== s; c = prev[c]) path.unshift({ x: c % N + .5, y: ((c / N) | 0) + .5 });
+  if (path.length && !W.blocked[s]) path.unshift({ x: sx + .5, y: sy + .5 });   // сначала в центр своей клетки — оттуда проход по клеткам гарантирован
+  return { path, exact: best === gy * N + gx };
+}
 function wander(e, dt, speed, radius) {
   if (e.wait > 0) { e.wait -= dt; e.moving = false; return; }
   if (!e.target) { e.target = randomNear(e, radius); if (!e.target) { e.wait = 1; return; } e.stuck = 0; }
   const px = e.x, py = e.y, arrived = goTo(e, e.target.x, e.target.y, dt, speed, { noWater: true });
-  e.stuck = (Math.abs(e.x - px) + Math.abs(e.y - py) < .001) ? (e.stuck || 0) + dt : 0;
+  e.stuck = Math.hypot(e.x - px, e.y - py) < speed * dt * .25 ? (e.stuck || 0) + dt : 0;
   if (arrived || e.stuck > 1) { e.target = null; e.wait = rnd(1, 4); }
 }
 function nearestPickup(e, type, r) { let b = null, bd = r; for (const p of G.pickups) if (p.type === type && !p.fly) { const d = dist(e, p); if (d < bd) { b = p; bd = d; } } return b; }
@@ -203,6 +270,7 @@ function alertKeeper(k, x, y, why) { if (k.state === 'stunned' || k.state === 'c
 function updateKeeper(k, dt) {
   const W = G.W, players = livePlayers().filter(p => !p.tween); if (!players.length) return;
   if (k.cool > 0) k.cool -= dt; if (k.calm > 0) k.calm -= dt;
+  k.rad = .3; if (k.grounded && k.state !== 'away' && k.state !== 'sleep') unstick(k, .3);
   if (keeperDay(k, dt)) return;
   if (G.riot && k.state !== 'sleep' && k.state !== 'tohut' && k.state !== 'stunned') { k.state = 'panic'; keeperPanic(k, dt); physics(k, dt); return; }
   if (k.state === 'panic') { k.state = 'patrol'; k.panC = null; }
@@ -243,7 +311,7 @@ function updateKeeper(k, dt) {
   } else if (k.state === 'patrol' && keeperRoutine(k, dt)) {
   } else if (k.state === 'patrol') {
     if (k.wait > 0) { k.wait -= dt; k.moving = false; const a = Math.atan2(k.dy, k.dx) + Math.sin(G.t * .9) * dt * .8; setFacing(k, Math.cos(a), Math.sin(a)); }
-    else { const w = W.wps[k.wp]; if (!w) return; const px = k.x, py = k.y; if (goTo(k, w.x, w.y, dt, k.speedP)) { k.wp = (k.wp + 1) % W.wps.length; k.wait = rnd(1, 2.5); } k.stuck = Math.abs(k.x - px) + Math.abs(k.y - py) < .001 ? (k.stuck || 0) + dt : 0; if (k.stuck > 1) { k.wp = (k.wp + 1) % W.wps.length; k.stuck = 0; } }
+    else { const w = W.wps[k.wp]; if (!w) return; const px = k.x, py = k.y; if (goTo(k, w.x, w.y, dt, k.speedP)) { k.wp = (k.wp + 1) % W.wps.length; k.wait = rnd(1, 2.5); } k.stuck = Math.hypot(k.x - px, k.y - py) < k.speedP * dt * .25 ? (k.stuck || 0) + dt : 0; if (k.stuck > 1) { k.wp = (k.wp + 1) % W.wps.length; k.stuck = 0; } }
   }
   physics(k, dt);
 }
@@ -292,6 +360,8 @@ function updateNpcs(dt) {
   for (const n of G.npcs) {
     n.t += dt;
     if (n.boostCool > 0) n.boostCool -= dt;
+    if (n.rad === undefined) n.rad = n.sp === 'gorilla' || n.sp === 'troop' ? .4 : .28;
+    if (n.sp !== 'parrot' && n.grounded && !n.held && !n.fly && !['away', 'held', 'fly', 'coil'].includes(n.state)) unstick(n, n.rad);
     if (n.sp === 'python') { if (!aiPython(n, dt)) continue; }
     else if (n.sp === 'chimp') { if (!G.riot) aiChimp2(n, dt); }
     else if (n.sp === 'troop') aiTroop(n, dt);
@@ -305,7 +375,7 @@ function eatPickup(n, p) { const i = G.pickups.indexOf(p); if (i >= 0) G.pickups
 function aiChimp(n, dt) {
   if (n.mood && (n.moodT -= dt) <= 0) n.mood = null;
   const me = nearestPlayer(n); if (!me) return; const dme = dist(n, me);
-  if (n.fleeT > 0) { n.fleeT -= dt; stepEntity(n, (n.x - me.x) / (dme || 1), (n.y - me.y) / (dme || 1), dt, 3.2, { noWater: true }); return; }
+  if (n.fleeT > 0) { n.fleeT -= dt; stepAround(n, n.x - me.x, n.y - me.y, dt, 3.2, { noWater: true }); return; }
   const b = nearestPickup(n, 'banana', 9);
   if (b) { if (goTo(n, b.x, b.y, dt, 2.4, { noWater: true }) || dist(n, b) < .6) { eatPickup(n, b); n.bond = Math.min(100, n.bond + 18); n.mood = 'happy'; n.moodT = 2; checkBond(n, nearestPlayer(b)); } return; }
   n.want = n.bond < 50 && dme < 7 && bananasOf(me) > 0;
@@ -331,7 +401,7 @@ function aiGorilla(n, dt) {
   if (target) {
     const dme = dist(n, target);
     if (n.state !== 'chase') { n.state = 'chase'; SND.gorilla(n); }
-    stepEntity(n, (target.x - n.x) / (dme || 1), (target.y - n.y) / (dme || 1), dt, 3.35, { noWater: true, r: .4 });
+    goTo(n, target.x, target.y, dt, 3.35, { noWater: true, r: .4 });
     if (dme < 1.1 && n.pushCool <= 0 && !target.tween) {
       n.pushCool = 2.5; n.rage = 0; const lost = bananasOf(target); n.full = lost > 0 ? 18 : 6;
       const nx = target.x + (target.x - n.x) / (dme || 1) * 1.8, ny = target.y + (target.y - n.y) / (dme || 1) * 1.8;

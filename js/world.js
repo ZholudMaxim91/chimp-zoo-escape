@@ -15,7 +15,7 @@ function genWorld(seedStr) {
   let uid = 1;
   const add = (type, x, y, extra = {}, block = true) => {
     const o = { id: uid++, type, x, y, tx: Math.floor(x), ty: Math.floor(y), ...extra };
-    o.blk = !!(block && inb(o.tx, o.ty)); W.objs.push(o); if (o.blk) { blocked[I(o.tx, o.ty)] = TRUNKS.includes(type) ? 2 : 1; if (TRUNKS.includes(type)) W.trunkR[I(o.tx, o.ty)] = o.trunkR || (type === 'tree' ? (o.sp === 'baobab' ? .42 : .26) : .22); } return o;
+    o.blk = !!(block && inb(o.tx, o.ty)); W.objs.push(o); if (o.blk) { blocked[I(o.tx, o.ty)] = TRUNKS.includes(type) ? 2 : 1; if (TRUNKS.includes(type)) W.trunkR[I(o.tx, o.ty)] = o.trunkR || (type === 'tree' ? (o.sp === 'baobab' ? .34 : .17) : .15); } return o;
   };
   const free = (x, y) => inb(x, y) && !blocked[I(x, y)] && kind[I(x, y)] !== K.WATER && kind[I(x, y)] !== K.DECK;
   const flatFree = (x, y, hh = 0) => free(x, y) && h[I(x, y)] === hh;
