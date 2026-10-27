@@ -13,7 +13,7 @@ function resetState() {
     t: 0, day: 1, dayT: 80, boostT: 0, washT: 0, score: 0, energy: 80, keyHolder: null, pid: 0, duel: null, invite: null, gateOpen: false, gateAnim: 0, combo: 0, comboT: 0, mini: null, tut: null, tutOk: false, tutDist: 0, dustT: 0, peanutT: 5,
     vineCool: 0, shotCool: 0, stickDur: 3, startedAt: performance.now(), keyHint: 0,
     st: { str: { lv: 1, xp: 0 }, agi: { lv: 1, xp: 0 }, int: { lv: 1, xp: 0 }, cha: { lv: 1, xp: 0 } },
-    inv: { banana: 0, nut: 0, stone: 2, stick: 0, poop: 3, coin: 0, water: 0, coconut: 0, vine: 1 }, vineHP: 4, mudT: 0, carry: null, spin: null, shelters: [], tireXpT: 0, bladder: 10, diarrheaT: 0, eatLog: [], peeT: 0, trailT: 0,
+    inv: { banana: 0, nut: 0, stone: 2, stick: 0, poop: 3, coin: 0, water: 0, coconut: 0, vine: 1, whistle: 0 }, vineHP: 4, mudT: 0, carry: null, spin: null, gas: 0, clouds: [], wet: [], wetQ: [], wetT: 0, riot: null, riotDay: 0, carryPy: false, hose: null, spraying: false, wearCap: false, coil: null, whistleCool: 0, shelters: [], tireXpT: 0, bladder: 10, diarrheaT: 0, eatLog: [], peeT: 0, trailT: 0,
     cnt: { banana: 0, peanut: 0, nuts: 0, fish: 0, dig: 0, treasure: 0, puzzle: 0, show: 0, drums: 0, hits: 0, viral: 0, bestCombo: 0, bestShow: 0, stolen: 0, friends: 0, decoy: 0, slips: 0, gongs: 0,
       squirts: 0, parrots: 0, summit: 0, vines: 0, jumps: 0, bounces: 0, ladders: 0, sprintT: 0, pacify: 0, locker: 0, throws: 0, shakes: 0, duels: 0, pHits: 0, washes: 0, pees: 0, cocos: 0, megas: 0, scared: 0, screams: 0, diarrhea: 0, troopHits: 0, intruders: 0, gangHits: 0, whips: 0, recruits: 0 }, intruders: [], lastRank: 0,
     pickups: [], proj: [], parts: [], floaters: [], splats: [],
@@ -116,7 +116,7 @@ function describe(t) {
       return { text: 'Потрясти дерево (палки, орехи)', run: () => startAct('shake', 1.1, () => { o.cool = 25; G.cnt.shakes++; const r = Math.random(); lootDrop(r < .5 ? 'stick' : 'nut', o.x + rnd(-1, 1), o.y + rnd(.6, 1.4)); if (Math.random() < .22) lootDrop('vine', o.x + rnd(-1, 1), o.y + 1.2); if (r > .7) lootDrop('nut', o.x + rnd(-1, 1), o.y + 1); emit(o.x, o.y, groundAt(W, o.x, o.y) + 4, 10, { kind: 'dust', col: P_.g2, spread: 1.4, v0: 0, v1: 1, g: 3, life: 1 }); sfx.tick(); }) };
     case 'bush':
       if (o.sticks > 0) return { text: 'Взять палку (инструмент 4)', run: () => startAct('grab', .6, () => { o.sticks--; o.regrow = 0; G.inv.stick = Math.min(5, G.inv.stick + 1); floater(o.x, o.y, 2, '+палка', P_.d3); sfx.tick(); }, 'stick') };
-      if (o.berries > 0) return { text: 'Съесть ягоды (+энергия)', run: () => startAct('eat', .5, () => { o.berries--; o.regrow = 0; addEnergy(10); addScore(2); floater(o.x, o.y, 2, '+10 сил', P_.red); sfx.eat(); }) };
+      if (o.berries > 0) return { text: 'Съесть ягоды (+энергия)', run: () => startAct('eat', .5, () => { o.berries--; o.regrow = 0; addEnergy(10); addScore(2); addGas(14); floater(o.x, o.y, 2, '+10 сил', P_.red); sfx.eat(); }) };
       return { text: 'Пусто', bad: true };
     case 'stonepile':
       if (o.stones <= 0) return { text: 'Камней больше нет', bad: true };
@@ -228,8 +228,19 @@ function describe(t) {
     case 'player':
       if (G.duel) return { text: 'Дуэль уже идёт', bad: true };
       return { text: `⚔ Вызвать ${o.name} на дуэль говном`, run: () => { duelRequest(o.netId); sfx.hoot(); } };
+    case 'python': {
+      if (G.carryPy) return null;
+      if (o.held || o.state === 'fly' || o.state === 'away') return { text: 'Питона уже кто-то держит', bad: true };
+      if (o.state === 'coil') return { text: 'Питон занят — душит кого-то!', bad: true };
+      const sleepy = pySleepy(o), behind = pyBehind(o, me), ch = sleepy ? 100 : behind ? Math.round(clamp(.55 + .08 * (G.st.agi.lv - 1), .55, .9) * 100) : 0;
+      return { text: sleepy ? '🐍 Схватить сонного питона за хвост (100%)' : behind ? `🐍 Схватить питона за хвост сзади — шанс ${ch}%` : '🐍 Питон смотрит на тебя! Схватишь спереди — обовьёт (зайди с хвоста)',
+        run: () => startAct('grab', .45, () => { if (isHost()) hostPyGrab(me, G.st.agi.lv); else NET.send({ t: 'pyGrab', agi: G.st.agi.lv }); }) };
+    }
+    case 'hose': if (G.hose) return { text: 'Бросить шланг (E)', run: () => dropHose() };
+      return { text: '🚿 Взять садовый шланг (струя сбивает шляпы, мочит всех, газон превращается в каток)', run: () => startAct('grab', .4, () => takeHose(o)) };
     case 'keeper': {
       const k = G.keeper;
+      if (k.state === 'sleep') { const r = raidOption(k); if (!r) return { text: 'В сторожке больше нечего натворить', bad: true }; return { text: `🌙 ${r.text} — шанс разбудить ${Math.round(raidWake() * 100)}%${me.crouch ? '' : ' (пригнись — C)'}`, run: () => doRaid(r) }; }
       if (!k.hasKey) return { text: 'Ключа у смотрителя уже нет', bad: true };
       if (k.cool > 0) return { text: 'Смотритель настороже… ' + Math.ceil(k.cool) + 'с', bad: true };
       const r = exertBlock(8); if (r) return { text: r, bad: true };
@@ -249,9 +260,9 @@ function nearestInteractable() {
   for (const o of W.objs) {
     if (o.type === 'hut' || o.type === 'gate') continue;
     const reach = { banana_tree: 1.7, tree: 1.6, frame: 1.7, swing: 1.6, ladder: 1.2, chest: 1.3, dig: 1.2, anvil: 1.5 }[o.type] || 1.5, d = Math.hypot(o.x - me.x, o.y - me.y);
-    if (d < reach && Math.abs(groundAt(W, o.x, o.y) - me.z) <= 1.7) { if (o.type === 'dig' && o.dug) continue; if (o.type === 'chest' && o.opened) continue; consider(d - (o.type === 'banana_tree' || o.type === 'coco_palm' || o.type === 'fountain' ? .4 : 0), { kind: o.type, o }); }
+    if (d < reach && Math.abs(groundAt(W, o.x, o.y) - me.z) <= 1.7) { if (o.type === 'dig' && o.dug) continue; if (o.type === 'chest' && o.opened) continue; consider(d - (o.type === 'banana_tree' || o.type === 'coco_palm' || o.type === 'fountain' || o.type === 'hose' ? .5 : 0), { kind: o.type, o }); }
   }
-  for (const n of G.npcs) { const d = dist(n, me); if (d < 1.8 && (n.sp === 'chimp' || n.sp === 'gorilla') && Math.abs(n.z - me.z) < 1.7) consider(d + .1, { kind: n.sp, o: n }); }
+  for (const n of G.npcs) { const d = dist(n, me); if (d < 1.8 && (n.sp === 'chimp' || n.sp === 'gorilla' || n.sp === 'python') && Math.abs(n.z - me.z) < 1.7) consider(d + (n.sp === 'python' ? -.1 : .1), { kind: n.sp, o: n }); }
   for (const p of livePlayers()) if (!p.me && !p.tween) { const d = dist(p, me); if (d < 2.2 && Math.abs(p.z - me.z) < 1.7) consider(d + .15, { kind: 'player', o: p }); }
   const k = G.keeper; if (k) { const d = dist(k, me); if (d < 1.7 && Math.abs(k.z - me.z) < 1.7) consider(d - .2, { kind: 'keeper', o: k }); }
   for (let j = -1; j <= 1; j++) for (let i = -1; i <= 1; i++) if (tileKind(me.x + i * .8, me.y + j * .8) === K.WATER) consider(.9, { kind: 'pond', o: {} });
@@ -263,6 +274,8 @@ function nearestInteractable() {
 function interact() {
   const me = G.me; if (me.act || me.stun > 0 || me.tween) return;
   if (G.carry) { const o = G.carry; moveObj(o, me.x + me.dx * .8, me.y + me.dy * .8); o.held = null; G.carry = null; toast('Шину положил'); return; }
+  if (G.carryPy) { G.carryPy = false; if (isHost()) hostPyDrop(me); else NET.send({ t: 'pyDrop' }); toast('Отпустил питона'); return; }
+  if (G.hose) { dropHose(); toast('Шланг брошен'); return; }
   if (G.mini) { miniKey(null); return; }
   const t = nearestInteractable(); if (!t) return;
   const d = describe(t); if (d && d.run) d.run(); else if (d) sfx.bad();
@@ -286,7 +299,7 @@ function useTool() {
 function throwItem(kind, tgt) {
   const me = G.me; if (!(kind === 'poop' && inDuel())) G.inv[kind]--; G.cnt.throws += kind === 'poop' ? 1 : 0; G.shotCool = .35;
   setFacing(me, tgt.x - me.x, tgt.y - me.y); if (kind === 'poop' || kind === 'stone') me.heat = Math.max(me.heat, 3);
-  if (me.vine) { const sol = solveThrow(me, tgt); spawnProj(kind, me, sol); netProj(kind, me, sol); sfx.throw(); if (kind === 'poop') gangMimicThrow(tgt); return; }
+  if (me.vine || !me.grounded) { const sol = solveThrow(me, tgt); spawnProj(kind, me, sol); netProj(kind, me, sol); sfx.throw(); if (kind === 'poop') gangMimicThrow(tgt); return; }
   startAct('throw', .22, () => { const sol = solveThrow(me, G.aim.x !== undefined ? { x: tgt.x, y: tgt.y, z: tgt.z } : tgt); spawnProj(kind, me, sol); netProj(kind, me, sol); sfx.throw(); if (kind === 'poop') gangMimicThrow(tgt); }, kind);
 }
 function throwMega(tgt) {
@@ -412,7 +425,7 @@ function miniKey(dir) {
   } else if (m.type === 'crack') {
     if (dir) return; const ok = Math.abs(m.pos - m.zone) < m.w / 2, item = m.item || 'nut'; G.inv[item]--; endMini();
     if (ok && item === 'coconut') { G.boostT = 45; G.cnt.cocos++; addEnergy(30); addXp('int'); addScore(25); toast('🥥 Кокосовое молоко! 45 с: бег +20%, прыжки выше, броски быстрее', 'good'); floater(G.me.x, G.me.y, G.me.z + 3, 'ХРЯСЬ! +25', '#f6f2e2'); sfx.up(); emit(G.me.x, G.me.y, G.me.z + 1, 12, { col: ['#f6f2e2', '#6a4a2a'], spread: 1.4, v0: 1, v1: 4, life: .7 }); }
-    else if (ok) { G.cnt.nuts++; addEnergy(20); addXp('int'); addScore(20); floater(G.me.x, G.me.y, G.me.z + 3, 'ХРЯСЬ! +20', P_.d4); sfx.ok(); emit(G.me.x, G.me.y, G.me.z + 1, 8, { col: P_.d4, spread: 1.2, v0: 1, v1: 3, life: .6 }); } else { floater(G.me.x, G.me.y, G.me.z + 3, 'мимо — орех улетел', P_.red); sfx.bad(); }
+    else if (ok) { G.cnt.nuts++; addEnergy(20); addGas(16); addXp('int'); addScore(20); floater(G.me.x, G.me.y, G.me.z + 3, 'ХРЯСЬ! +20', P_.d4); sfx.ok(); emit(G.me.x, G.me.y, G.me.z + 1, 8, { col: P_.d4, spread: 1.2, v0: 1, v1: 3, life: .6 }); } else { floater(G.me.x, G.me.y, G.me.z + 3, 'мимо — орех улетел', P_.red); sfx.bad(); }
   } else if (m.type === 'drums') { if (dir) return; m.taps++; SND.drum(null); renderMini(); }
 }
 
@@ -430,6 +443,7 @@ addEventListener('keydown', e => {
   }
   G.keys.add(e.code);
   if (e.repeat) return;
+  if (e.code === 'Space' && G.coil) { G.coil.mash++; floater(G.me.x, G.me.y, G.me.z + 3, '💪 ' + G.coil.mash + '/7', P_.yel); if (G.coil.mash >= 7) { G.coil = null; G.me.stun = 0; if (isHost()) hostPyFree(G.me); else NET.send({ t: 'pyFree' }); } return; }
   if (e.code === 'Space' && G.me.vine) { releaseVine(G.me, true); return; }
   if (e.code === 'KeyX') { roll(); return; }
   if (e.code === 'KeyE') { if (G.me.vine) { releaseVine(G.me, false); return; } interact(); }
@@ -438,6 +452,9 @@ addEventListener('keydown', e => {
   else if (e.code === 'KeyQ') scream();
   else if (e.code === 'KeyY') duelAccept();
   else if (e.code === 'KeyB') buildShelter();
+  else if (e.code === 'KeyT') fart();
+  else if (e.code === 'KeyH') riot();
+  else if (e.code === 'KeyZ') blowWhistle();
   else if (/^Digit[1-7]$/.test(e.code)) { G.tool = +e.code.slice(5) - 1; sfx.tick(); }
 });
 addEventListener('keyup', e => G.keys.delete(e.code));
@@ -449,9 +466,9 @@ cv.addEventListener('contextmenu', e => e.preventDefault());
 cv.addEventListener('mousedown', e => {
   if (G.state !== 'play') return; setMouse(e);
   if (G.mini) { if (e.button === 0) miniKey(null); return; }
-  if (e.button === 0) { if (G.carry && !G.me.act) { G.spin = { t: 0 }; G.me.act = { type: 'spin', t: 0, dur: 0, done: null }; } else useTool(); } else if (e.button === 2) hoot();
+  if (e.button === 0) { if ((G.carry || G.carryPy) && !G.me.act && !G.coil) { G.spin = { t: 0 }; G.me.act = { type: 'spin', t: 0, dur: 0, done: null }; } else if (G.hose) G.spraying = true; else useTool(); } else if (e.button === 2) hoot();
 });
-addEventListener('mouseup', e => { if (G.state === 'play' && e.button === 0 && G.spin) throwTire(); });
+addEventListener('mouseup', e => { if (G.state === 'play' && e.button === 0) { G.spraying = false; if (G.spin) G.carryPy ? throwPython() : throwTire(); } });
 addEventListener('wheel', e => { if (e.ctrlKey) { e.preventDefault(); if (G.state === 'play') setZoom(camera.zoom * (e.deltaY > 0 ? .9 : 1.1)); return; } if (G.state !== 'play' || G.mini) return; G.tool = (G.tool + (e.deltaY > 0 ? 1 : TOOLS.length - 1)) % TOOLS.length; sfx.tick(); }, { passive: false });
 
 // прицел: курсор над существом «прилипает» к нему (иначе попасть по высоким спрайтам трудно)
@@ -489,7 +506,10 @@ function update(dt) {
   for (let i = G.splats.length - 1; i >= 0; i--) { G.splats[i].t += dt; if (G.splats[i].t > 28) G.splats.splice(i, 1); }
   G.gateAnim = clamp(G.gateAnim + (G.gateOpen ? dt * 1.5 : 0), 0, 1);
   if (G.boostT > 0) G.boostT -= dt; if (G.mudT > 0) G.mudT -= dt; if (G.tireXpT > 0) G.tireXpT -= dt; if (G.whipFx) { G.whipFx.t -= dt; if (G.whipFx.t <= 0) G.whipFx = null; }
-  if (G.spin) { G.spin.t += dt; if (G.spin.t > 2.5) throwTire(); }
+  if (G.spin) { G.spin.t += dt; if (G.spin.t > 2.5) G.carryPy ? throwPython() : throwTire(); }
+  updateHose(dt);
+  if (G.coil) { G.coil.t -= dt; me.stun = Math.max(me.stun, .1); if (Math.random() < dt * 2) addEnergy(-1); if (G.coil.t <= 0) { G.coil = null; me.stun = 0; } }
+  if (host) pranksTick(dt); else if (G.wetQ.length && (G.wetT -= dt) <= 0) { G.wetT = .5; NET.send({ t: 'wet', w: G.wetQ.splice(0, 30) }); }
   if (host) { for (let i = G.shelters.length - 1; i >= 0; i--) { G.shelters[i].t -= dt; if (G.shelters[i].t <= 0) { G.shelters.splice(i, 1); logEv('🛖', 'Шалаш развалился'); } } for (const o of W.objs) if (o.type === 'logpile' && o.logs < 4) { o.regrow += dt; if (o.regrow > 40) { o.logs++; o.regrow = 0; } } }
   if (host) for (const o of W.objs) if (o.type === 'coco_palm' && o.cocos < 2) { o.regrow += dt; if (o.regrow > 45) { o.cocos++; o.regrow = 0; } }
   // писать (V): струя туда, куда смотрит прицел
@@ -539,6 +559,10 @@ function applyReward(r) {
   if (r.fl) floater(r.fl[0], r.fl[1], r.fl[2], r.fl[3], r.fl[4]);
   if (r.toast) toast(r.toast[0], r.toast[1]);
   if (r.sfx && sfx[r.sfx]) sfx[r.sfx]();
+  if (r.pyHeld) { G.carryPy = true; G.carry = null; dropHose(); }
+  if (r.pyDrop) { G.carryPy = false; if (G.spin) { G.spin = null; if (me.act && me.act.type === 'spin') me.act = null; } }
+  if (r.wearCap) G.wearCap = true;
+  if (r.item) G.inv[r.item] = 1;
 }
 function visReward(v) {   // попадание 💩 в зрителя: серия (комбо) считается у того, кто бросил
   const fx = HIT_FX[v.fx]; G.cnt.hits++; G.combo = G.comboT > 0 ? G.combo + 1 : 1; G.comboT = 6; G.cnt.bestCombo = Math.max(G.cnt.bestCombo, G.combo);
@@ -550,7 +574,8 @@ function visReward(v) {   // попадание 💩 в зрителя: сери
 function applyHurt(h) {
   const me = G.me; if (!me) return;
   if (h.caught) {
-    addScore(-20); me.stun = 1.2; me.act = null; endMini(); me.tween = null;
+    addScore(-20); me.stun = 1.2; me.act = null; endMini(); me.tween = null; G.coil = null; dropHose();
+    if (G.carryPy) { G.carryPy = false; G.spin = null; if (isHost()) hostPyDrop(me); else NET.send({ t: 'pyDrop' }); }
     if (h.hadKey) toast('Смотритель отобрал ключ!', 'bad');
     toast('Тебя поймали! −20 очков. Смотритель отнёс тебя в другой угол вольера', 'bad'); sfx.bad();
     const sp = h.spawn || G.W.spawn; me.invuln = 6;
@@ -567,6 +592,8 @@ function applyHurt(h) {
     if (after > before) toast(`Ты весь в ${h.bird ? 'птичьем помёте' : 'говне'}: скорость −${Math.round(after * 100)}%. Отмойся в пруду!`, 'bad');
   }
   if (h.fl) floater(h.fl[0], h.fl[1], h.fl[2], h.fl[3], h.fl[4]);
+  if (h.coil) { G.coil = { t: h.coil, mash: 0 }; me.act = null; me.stun = h.coil; G.spin = null; dropHose(); if (me.vine) releaseVine(me, false); }
+  if (h.wash) { me.dirtP = 0; me.dirtB = 0; G.mudT = 0; }
   if (h.toast) toast(h.toast[0], h.toast[1]);
   if (h.sfx && sfx[h.sfx]) sfx[h.sfx]();
   emit(me.x, me.y, me.z + 2, 8, { kind: 'star', col: P_.red, spread: 1.4, v0: 1, v1: 4, g: 8, life: .7 });
@@ -629,7 +656,9 @@ function updateHud() {
   QUESTS.forEach((q, i) => { qEls[i].classList.toggle('done', q.done); qEls[i].lastChild.textContent = q.done ? '✔' : `${Math.min(q.get(), q.goal)}/${q.goal}`; });
   ACHS.forEach((a, i) => aEls[i].classList.toggle('on', a.on));
   const k = G.keeper, ks = { patrol: ['👁 патруль', ''], suspicious: ['👁 ищет!', 'warn'], chase: ['👁 ПОГОНЯ!', 'alarm'], stunned: ['👁 оглушён', 'ok'], tohut: ['👁 идёт спать', 'ok'], sleep: ['💤 спит', 'ok'] }[k.state] || ['👁 ?', ''];
-  const ds = dirtSlow(); $('dayInfo').innerHTML = '📅 ' + Math.min(G.day, DAYS) + '/' + DAYS + ' · ' + (isNight() ? '🌙' : '☀') + ' ' + clockStr() + (ds ? ' · <span class="ks alarm">💩 −' + Math.round(ds * 100) + '%</span>' : '') + (G.boostT > 0 ? ' · 🥥 ' + Math.ceil(G.boostT) + 'с' : '') + (G.diarrheaT > 0 ? ' · <span class="ks alarm">🤢 ' + Math.ceil(G.diarrheaT) + 'с</span>' : '') + (G.mudT > 0 ? ' · 🟤 ' + Math.ceil(G.mudT) + 'с' : '') + (inShelter(G.me) ? ' · 🛖 укрыт' : '') + (G.carry ? ' · 🛞 шина' + (G.spin ? ' ' + Math.round(clamp(G.spin.t / 1.2, 0, 1) * 100) + '%' : '') : '');
+  const ds = dirtSlow(); $('dayInfo').innerHTML = '📅 ' + Math.min(G.day, DAYS) + '/' + DAYS + ' · ' + (isNight() ? '🌙' : '☀') + ' ' + clockStr() + (ds ? ' · <span class="ks alarm">💩 −' + Math.round(ds * 100) + '%</span>' : '') + (G.boostT > 0 ? ' · 🥥 ' + Math.ceil(G.boostT) + 'с' : '') + (G.diarrheaT > 0 ? ' · <span class="ks alarm">🤢 ' + Math.ceil(G.diarrheaT) + 'с</span>' : '') + (G.mudT > 0 ? ' · 🟤 ' + Math.ceil(G.mudT) + 'с' : '') + (inShelter(G.me) ? ' · 🛖 укрыт' : '') + (G.carry ? ' · 🛞 шина' + (G.spin ? ' ' + Math.round(clamp(G.spin.t / 1.2, 0, 1) * 100) + '%' : '') : '')
+    + (G.carryPy ? ' · 🐍 питон' + (G.spin ? ' ' + Math.round(clamp(G.spin.t / 1.2, 0, 1) * 100) + '%' : '') : '') + (G.hose ? ' · 🚿 шланг' : '') + (G.coil ? ' · <span class="ks alarm">🐍 ПРОБЕЛ! ' + G.coil.mash + '/7</span>' : '')
+    + ((G.gas || 0) >= 30 ? ' · 💨 ' + Math.round(G.gas) + '% (T)' : '') + (G.riot ? ' · <span class="ks alarm">🔥 бунт ' + Math.ceil(G.riot.t) + 'с</span>' : '') + (G.inv.whistle ? ' · 📯 Z' : '') + (G.wearCap ? ' · 🧢' : '');
   $('escapeInfo').innerHTML = `<span class="ks ${ks[1]}">${ks[0]}</span> · 🗝 ${G.hasKey ? '✔' : '✘'} · уровни ${lvSum()}/${NEED_SUM}${G.combo > 1 ? ' · 🔥×' + Math.min(3, G.combo) : ''}`;
   TOOLS.forEach((t, i) => { slotEls[i].classList.toggle('sel', i === G.tool); slotEls[i].classList.toggle('off', !t.ok()); slotEls[i].querySelector('em').textContent = t.count(); });
   $('seedInfo').textContent = '🌱 ' + G.W.seed; drawMinimap();

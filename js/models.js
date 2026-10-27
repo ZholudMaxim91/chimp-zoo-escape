@@ -148,10 +148,13 @@ function makeHuman(o) {
   head.add(part(GEO.sph2, o.skin, [0, .14, 0], [.14, .16, .14]));
   for (const s of [-1, 1]) head.add(part(GEO.sph, '#1a1416', [s * .05, .16, .13], [.018, .022, .01]));
   const mouth = part(GEO.box, '#7a3030', [0, .08, .135], [.05, .012, .01]); head.add(mouth);
-  if (o.hat === 'cap') { head.add(part(GEO.cyl, o.capCol, [0, .26, 0], [.15, .08, .15])); head.add(part(GEO.box, o.capCol2, [0, .23, .14], [.24, .025, .14])); }
-  else if (o.hat === 'sun') { head.add(part(GEO.cyl, '#e0c070', [0, .25, 0], [.25, .02, .25])); head.add(part(GEO.cyl, '#e8c97a', [0, .3, 0], [.12, .1, .12])); }
+  const hat = [];
+  if (o.hat === 'cap') { hat.push(part(GEO.cyl, o.capCol, [0, .26, 0], [.15, .08, .15]), part(GEO.box, o.capCol2, [0, .23, .14], [.24, .025, .14])); }
+  else if (o.hat === 'sun') { hat.push(part(GEO.cyl, '#e0c070', [0, .25, 0], [.25, .02, .25]), part(GEO.cyl, '#e8c97a', [0, .3, 0], [.12, .1, .12])); }
+  if (hat.length) { hat.forEach(m => head.add(m)); hat.push(part(GEO.sph, o.hair || '#4a3020', [0, .2, -.02], [.145, .1, .145])); head.add(hat[hat.length - 1]); hat[hat.length - 1].visible = false; }
   else head.add(part(GEO.sph, o.hair, [0, .2, -.02], [.15, .11, .15]));
-  const j = { body, hips, torso, neck, head, mouth };
+  const must = part(GEO.box, '#2a1a0e', [0, .105, .14], [.11, .022, .012]); must.visible = false; head.add(must);
+  const j = { body, hips, torso, neck, head, mouth, hat, must };
   for (const [s, n] of [[-1, 'L'], [1, 'R']]) {
     const sh = grp(s * .23, .47, 0); torso.add(sh);
     const up = limb(.27, .055, o.shirt); sh.add(up); const el = grp(0, -.27, 0); up.add(el);
@@ -319,4 +322,40 @@ function poseTortoise(r, st) {
   const j = r.j, s = st.move ? Math.sin(st.t * 5) : 0;
   j.legs.forEach((l, i) => l.rotation.x = (i % 3 === 0 ? s : -s) * .5);
   j.head.position.z = .5 + (st.hide ? -.2 : Math.sin(st.t * 1.3) * .02);
+}
+
+// ── питон: цепочка сегментов, поза задаётся каждый кадр
+const PY_SEG = 14;
+function makePython() {
+  const root = new T3.Group(), segs = [];
+  for (let i = 0; i < PY_SEG; i++) {
+    const k = i / (PY_SEG - 1), r = .12 * (1 - k * .55);
+    const g = new T3.Group(); g.add(part(GEO.sph2, i % 3 === 1 ? '#c8a848' : i % 2 ? '#6b7a2a' : '#7e8c34', null, [r, r * .85, r * 1.35]));
+    if (i % 3 === 0) g.add(part(GEO.sph, '#3a3a1a', [r * .55, r * .35, 0], [r * .45, r * .3, r * .6]));
+    root.add(g); segs.push(g);
+  }
+  const head = new T3.Group();
+  head.add(part(GEO.sph2, '#7e8c34', [0, 0, .06], [.1, .075, .15]));
+  for (const s of [-1, 1]) { head.add(part(GEO.sph, '#f0d040', [s * .06, .035, .1], [.022, .022, .022])); head.add(part(GEO.box, '#141010', [s * .065, .036, .108], [.006, .02, .01])); }
+  const tongue = part(GEO.box, '#d23040', [0, -.01, .24], [.012, .006, .08]); head.add(tongue);
+  root.add(head);
+  return { root, j: {}, segs, head, tongue, kind: 'python' };
+}
+// mode: ground | held | spin | fly | coil
+function posePython(r, o) {
+  const t = o.t, S = r.segs, L = .155; let pts = [];
+  if (o.mode === 'held') for (let i = 0; i < PY_SEG; i++) { const f = i / (PY_SEG - 1); pts.push([(f - .5) * 1.5, 1.05 + Math.sin(f * 3.1) * .25 + Math.sin(t * 5 + i * .6) * .05, .12 + Math.cos(t * 3 + i * .5) * .08]); }
+  else if (o.mode === 'spin') { const a = t * 15; for (let i = 0; i < PY_SEG; i++) { const rr = .12 + i * .12; pts.push([Math.cos(a - i * .06) * rr, 1.3 + i * .012, Math.sin(a - i * .06) * rr]); } pts.reverse(); }
+  else if (o.mode === 'coil') for (let i = 0; i < PY_SEG; i++) { const a = i * 1.05 + t * .8; pts.push([Math.cos(a) * .3, .95 - i * .06, Math.sin(a) * .3]); }
+  else {
+    const mv = o.mode === 'fly' ? 1.6 : o.moving ? 1 : .12, amp = o.mode === 'fly' ? .22 : .15;
+    for (let i = 0; i < PY_SEG; i++) pts.push([Math.sin(i * .75 - t * 7 * mv) * amp * (i / PY_SEG + .25), .075, .15 - i * L]);
+  }
+  for (let i = 0; i < PY_SEG; i++) {
+    const p = pts[i], q = pts[Math.min(PY_SEG - 1, i + 1)], pp = pts[Math.max(0, i - 1)];
+    S[i].position.set(p[0], p[1], p[2]); S[i].rotation.y = Math.atan2(pp[0] - q[0], pp[2] - q[2]);
+    const bulge = o.digest && (i === 6 || i === 7) ? 1.9 : o.digest && (i === 5 || i === 8) ? 1.35 : 1; S[i].scale.set(bulge, bulge, 1);
+  }
+  const h = pts[0], n2 = pts[1]; r.head.position.set(h[0] + (h[0] - n2[0]) * .6, h[1] + .01, h[2] + (h[2] - n2[2]) * .6); r.head.rotation.y = Math.atan2(h[0] - n2[0], h[2] - n2[2]);
+  r.head.rotation.z = o.stunned ? 1.4 : 0; r.tongue.visible = !o.stunned && Math.sin(t * 9) > .3;
 }

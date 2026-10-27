@@ -364,6 +364,7 @@ function buildObjects(W) {
         addDyn(gg, o, (o, t) => { const k = .25; gg.visible = !o.held; gg.position.x += (o.x - gg.position.x) * k; gg.position.z += (o.y - gg.position.z) * k; gg.position.y = groundSmooth(gg.position.x, gg.position.z) * LV; }); break; }
       case 'mud': { const m = part(GEO.cyl, '#3e2a18', [x, z + .015, y], [.95, .02, .8]); m.castShadow = false; scene.add(m); for (let i = 0; i < 4; i++) { const b = part(GEO.sph, '#4e3420', [x + Math.cos(i * 1.7) * .5, z + .02, y + Math.sin(i * 1.7) * .4], [.12, .03, .1]); b.castShadow = false; scene.add(b); } break; }
       case 'hammock': { for (const sx of [-.7, .7]) mb.add(GEO.cyl, M(x + sx, z + .55, y, .05, 1.1, .05), '#6a4628', .08); const cl = new MB(); for (let i = 0; i < 8; i++) { const f = i / 7 - .5; cl.add(GEO.box, M(x + f * 1.3, z + .62 - (.25 - f * f) * .9, y, .18, .03, .45), i % 2 ? '#d24a34' : '#f0d070', 0); } scene.add(cl.build()); break; }
+      case 'hose': { mb.add(GEO.box, M(x, z + .22, y, .5, .44, .08), '#6a4628', .08); mb.add(GEO.box, M(x, z + .02, y, .6, .04, .3), '#5a3a20', .08); for (let i = 0; i < 4; i++) mb.add(GEO.tor, M(x, z + .38, y + .02 + i * .025, .2 - i * .02, .2 - i * .02, .3), i % 2 ? '#2f8a3a' : '#3aa048', .1); mb.add(GEO.cyl, M(x + .3, z + .3, y, .03, .6, .03), '#8a8a96', .05); break; }
       case 'logpile': { for (let i = 0; i < 5; i++) mb.add(GEO.cyl, M(x + (i % 3 - 1) * .2, z + .1 + Math.floor(i / 3) * .17, y, .09, .7, .09, 0, 0, Math.PI / 2), i % 2 ? '#8a6238' : '#a07448', .1, i); break; }
       case 'termite': for (let i = 0; i < 3; i++) mb.add(GEO.cone, M(x + (i - 1) * .14, z + .4 - i * .07, y + (i % 2) * .1, .3 - i * .05, .85 - i * .2, .3 - i * .05), '#9a7048', .14, s + i, .2); for (let i = 0; i < 4; i++) mb.add(GEO.sph, M(x + Math.cos(i) * .2, z + .2 + i * .1, y + Math.sin(i) * .2 + .1, .04, .05, .03), '#2a1a10', 0); break;
       case 'anvil': mb.add(GEO.cyl, M(x, z + .15, y, .22, .3, .22), '#7a5230', .1, s); mb.add(GEO.box, M(x, z + .34, y, .55, .1, .38), '#8a8a9a', .1, s, .1); mb.add(GEO.box, M(x, z + .4, y, .5, .02, .33), '#a8a8b8', 0); break;
@@ -494,6 +495,7 @@ function rigFor(e, kind) {
     else if (kind === 'gorilla') r = makeApe(FUR.silver, 'gorilla');
     else if (kind === 'parrot') r = makeParrot(e.col || '#d24a34');
     else if (kind === 'tortoise') r = makeTortoise();
+    else if (kind === 'python') r = makePython();
     else if (kind === 'keeper') r = makeHuman({ shirt: '#3f8a4a', sleeve: '#3f8a4a', pants: '#2a4462', shoes: '#2a1a0e', skin: '#f0c8a0', hat: 'cap', capCol: '#2d7a3a', capCol2: '#1d5a2a', belt: true });
     else if (kind === 'visitor') r = makeHuman({ shirt: e.col, pants: e.pants, hair: e.hair, skin: e.skin, shoes: '#e8e8e8', hat: e.hat === 0 ? 'cap' : e.hat === 1 ? 'sun' : null, capCol: '#d24a34', capCol2: '#8a2a26', kid: e.kid, phone: true });
     r.seed = Math.random() * 10; r.ang = 0; r.px = e.x; r.py = e.y; r.kind = kind;
@@ -521,7 +523,9 @@ function syncCreatures() {
     if (p.gone) continue;
     const r = rigFor(p, 'player'), y = visY(p), mv = moveAngle(r, p);
     const ang = p.me ? Math.atan2(p.dx, p.dy) : mv;
-    const a = p.act ? p.act.type : (p.stun > 0 ? 'stun' : null);
+    const a0 = p.act ? p.act.type : (p.stun > 0 ? 'stun' : null), carriesPy = p.me ? G.carryPy : G.npcs.some(n => n.sp === 'python' && n.held === p.netId);
+    const a = a0 === 'hose' ? 'push' : a0 === 'fart' ? 'drink' : (!a0 && carriesPy) ? 'up' : a0;
+    if (!r.capM && (p.me ? G.wearCap : p.cap) && r.j.head) { r.capM = new T3.Group(); r.capM.add(part(GEO.cyl, '#2d7a3a', [0, .3, -.02], [.15, .08, .15])); r.capM.add(part(GEO.box, '#1d5a2a', [0, .27, .12], [.24, .025, .14])); r.j.head.add(r.capM); }
     const air = p.me ? (!p.grounded && !p.vine && p.z > groundAt(G.W, p.x, p.y) + .3) : false;
     const prop = p.act ? (p.act.prop || (p.act.type === 'dig' && p.me && G.inv.stick > 0 ? 'stick' : p.act.type === 'whip' ? 'vine' : null)) : null;
     const actP = p.act ? (p.act.type === 'roll' && p.roll ? p.roll.t / p.roll.dur : p.act.dur ? p.act.t / p.act.dur : 0) : 0;
@@ -534,6 +538,15 @@ function syncCreatures() {
     if (n.sp === 'parrot') { poseParrot(r, { t, fly: n.flying }); placeRig(r, n, n.rz, mv); continue; }
     if (n.sp === 'tortoise') { poseTortoise(r, { t, move: n.moving }); placeRig(r, n, visY(n), mv); continue; }
     if (n.sp === 'troop') { syncTroop(n, r, t); continue; }
+    if (n.sp === 'python') {
+      r.root.visible = n.state !== 'away'; if (!r.root.visible) continue;
+      const hold = G.carryPy ? G.me : n.held ? G.players.find(p => p.netId === n.held && !p.gone) : null;
+      if (hold) { posePython(r, { t: T, mode: hold.act && hold.act.type === 'spin' ? 'spin' : 'held' }); placeRig(r, hold, visY(hold), hold.me ? Math.atan2(hold.dx, hold.dy) : null); continue; }
+      const mode = n.state === 'fly' ? 'fly' : n.state === 'coil' ? 'coil' : 'ground';
+      posePython(r, { t: T, mode, moving: n.moving, digest: n.state === 'digest', stunned: n.state === 'stunned' });
+      if (mode === 'fly') { placeRig(r, n, n.z, mv); r.root.rotation.y = T * 9; } else placeRig(r, n, visY(n), mv);
+      continue;
+    }
     const act = n.sp === 'gorilla' ? (n.state === 'eat' ? 'eat' : n.state === 'chase' ? 'angry' : n.act) : (n.fleeT > 0 ? null : n.act ? (n.act === 'show' ? 'show' : n.act) : n.mood === 'happy' ? 'happy' : null);
     poseApe(r, { t, move: n.moving ? (n.state === 'chase' || n.fleeT > 0 || n.gang ? 2 : 1) : 0, act, carry: n.carry });
     placeRig(r, n, visY(n), mv);
@@ -541,16 +554,19 @@ function syncCreatures() {
   const k = G.keeper;
   if (k) {
     const r = rigFor(k, 'keeper'); moveAngle(r, k);
-    poseHuman(r, { t: tq(T, r.seed), move: k.moving ? (k.state === 'chase' ? 2 : 1) : 0, act: k.state === 'stunned' ? 'stun' : k.state === 'sleep' ? 'sleep' : k.state === 'feed' ? 'feed' : (k.state === 'chase' || k.state === 'suspicious') ? 'alert' : null });
+    r.root.visible = k.state !== 'away';
+    poseHuman(r, { t: tq(T, r.seed), move: k.moving ? (k.state === 'chase' || k.state === 'panic' ? 2 : 1) : 0, act: k.state === 'panic' ? 'scared' : k.state === 'stunned' ? 'stun' : k.state === 'sleep' ? 'sleep' : k.state === 'feed' ? 'feed' : (k.state === 'chase' || k.state === 'suspicious') ? 'alert' : null });
+    if (r.j.hat) { const off = k.noCap || k.capOff > G.t; r.j.hat.forEach((m, i) => { m.visible = i === r.j.hat.length - 1 ? off : !off; }); } if (r.j.must) r.j.must.visible = !!k.mustache;
     placeRig(r, k, visY(k), Math.atan2(k.dx, k.dy));
     const km = r.j.torso.children.find(c => c.geometry === GEO.box && c.material.color.getHexString() === 'ffd23a'); if (km) km.visible = k.hasKey;
-    if (KCONE) { const range = k.visRange || 8.5; KCONE.visible = k.state !== 'stunned' && k.state !== 'sleep' && k.state !== 'tohut'; KCONE.scale.set(range, range, 1); KCONE.position.set(k.x, groundSmooth(k.x, k.y) * LV + .04, k.y); KCONE.rotation.z = -Math.atan2(k.dy, k.dx); KCONE.material.color.set(k.state === 'chase' ? '#ff4030' : k.state === 'suspicious' ? '#ffb020' : '#ffe680'); KCONE.material.opacity = k.state === 'chase' ? .24 : .13; }
+    if (KCONE) { const range = k.visRange || 8.5; KCONE.visible = k.state !== 'stunned' && k.state !== 'sleep' && k.state !== 'tohut' && k.state !== 'away' && k.state !== 'panic'; KCONE.scale.set(range, range, 1); KCONE.position.set(k.x, groundSmooth(k.x, k.y) * LV + .04, k.y); KCONE.rotation.z = -Math.atan2(k.dy, k.dx); KCONE.material.color.set(k.state === 'chase' ? '#ff4030' : k.state === 'suspicious' ? '#ffb020' : '#ffe680'); KCONE.material.opacity = k.state === 'chase' ? .24 : .13; }
   }
   for (const it of G.intruders) { const r = rigFor(it, 'intruder'), mv = moveAngle(r, it); poseHuman(r, { t: tq(T, r.seed), move: it.moving || it.state !== 'wander' ? (it.state === 'flee' ? 2 : 1) : 0, act: it.state === 'flee' ? 'scared' : it.act }); placeRig(r, it, visY(it), mv); }
   for (const v of G.vis) {
     const r = rigFor(v, 'visitor'); r.root.visible = v.a > .5;
     if (!r.root.visible) continue;
     const phone = Math.sin(T * .5 + v.ph * 3) > .7;
+    if (r.j.hat && r.j.hat.length) { const off = v.hatOff > G.t; r.j.hat.forEach((m, i) => { m.visible = i === r.j.hat.length - 1 ? off : !off; }); }
     poseHuman(r, { t: tq(T, r.seed), seed: v.ph, act: v.cheer > 0 ? 'cheer' : (v.emo && v.emo.t > 1) ? 'scared' : phone ? 'phone' : null });
     placeRig(r, v, 0, Math.atan2(N / 2 - v.x, N / 2 - v.y));
   }
@@ -560,6 +576,7 @@ function syncCreatures() {
 function syncTroop(n, r, t) {
   const spread = n.fleeT > 0 ? 2.2 : .75;
   r.subs.forEach((m, i) => {
+    m.root.visible = i < n.members.length; if (!m.root.visible) return;
     const a = i * 1.26 + Math.sin(t * .7 + i) * .4, ox = Math.cos(a) * spread * (.6 + (i % 2) * .4), oy = Math.sin(a) * spread * (.6 + (i % 2) * .4);
     const x = n.x + ox, y = n.y + oy;
     poseApe(m, { t: t + i * .37, move: n.moving || n.fleeT > 0 ? 2 : 0, act: !n.moving && Math.sin(t * 2 + i) > .7 ? 'happy' : null });
@@ -585,10 +602,26 @@ const PICK_MK = {
   peanut: () => part(GEO.sph, '#d8b070', null, [.07, .05, .1]), nut: () => part(GEO.sph, '#8a5a30', null, [.07, .07, .07]),
   stone: () => part(GEO.sph, '#9a9aa4', null, [.09, .07, .08]), stick: () => part(GEO.cyl, '#8a6238', null, [.025, .45, .025], [0, 0, 1.4]),
   poop: () => part(GEO.sph, '#5a3a1a', null, [.08, .07, .08]), mega: () => part(GEO.sph2, '#4a2e12', null, [.22, .2, .22]), pee: () => part(GEO.sph, '#f0e060', null, [.03, .03, .03], null, { emissive: '#605010', emissiveIntensity: .3 }), water: () => part(GEO.sph, '#9ad8ff', null, [.04, .04, .04], null, { emissive: '#3a7aaa', emissiveIntensity: .4 }),
+  hose: () => part(GEO.sph, '#bfe8ff', null, [.05, .05, .05], null, { emissive: '#3a7aaa', emissiveIntensity: .5 }),
   hook: () => part(GEO.sph, '#c89a62', null, [.04, .04, .04]), vine: () => part(GEO.cyl, '#4e8a32', null, [.02, .5, .02], [.3, 0, 1.2]), tire: () => part(GEO.tor, '#1e1e22', null, [.26, .26, .26], [Math.PI / 2, 0, 0]),
 };
+function syncPranks() {
+  let ci = 0;
+  for (const c of G.clouds) {
+    const a = clamp(c.t / 3, 0, 1);
+    for (let i = 0; i < 5; i++) {
+      const m = pool('cloud', ci++, () => { const m = new T3.Mesh(GEO.sph2, new T3.MeshBasicMaterial({ color: '#9adf5a', transparent: true, opacity: .3, depthWrite: false })); m.renderOrder = 4; return m; });
+      const ang = i * 1.26 + G.t * .4 + c.id, rr = c.r * (.25 + (i % 3) * .2), s = c.r * (.6 + .12 * Math.sin(G.t * 2 + i));
+      m.position.set(c.x + Math.cos(ang) * rr, (groundSmooth(c.x, c.y) + .6 + (i % 2) * .7) * LV + .3, c.y + Math.sin(ang) * rr); m.scale.set(s, s * .55, s); m.material.opacity = .38 * a;
+    }
+  }
+  hideFrom('cloud', ci);
+  G.wet.forEach((w, i) => { const m = pool('wet', i, () => { const m = new T3.Mesh(new T3.CircleGeometry(1, 14), new T3.MeshBasicMaterial({ color: '#2a4a5a', transparent: true, opacity: .35, depthWrite: false })); m.rotation.x = -Math.PI / 2; m.renderOrder = 2; return m; }); m.position.set(w.x, groundSmooth(w.x, w.y) * LV + .03, w.y); m.scale.set(w.r, w.r, 1); });
+  hideFrom('wet', G.wet.length);
+}
 function syncItems() {
   const T = G.t, cnt = {};
+  syncPranks();
   const put = (type, x, zl, y, spin) => { const i = cnt[type] = (cnt[type] || 0) + 1; const m = pool(type, i - 1, PICK_MK[type] || PICK_MK.stone); m.position.set(x, zl * LV + .06, y); if (spin) m.rotation.y = T * 3; return m; };
   for (const p of G.pickups) {
     let x = p.x, y = p.y, z = p.z || 0;

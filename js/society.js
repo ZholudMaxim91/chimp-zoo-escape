@@ -10,7 +10,8 @@ const HOOL_RANKS = [
 function hoolPts() {
   const c = G.cnt || {};
   return (c.hits || 0) * 3 + (c.pees || 0) * 2 + (c.scared || 0) + (c.megas || 0) * 8 + (c.slips || 0) * 10 + (c.stolen || 0) * 20 + (c.pHits || 0) * 2
-    + (c.screams || 0) * 2 + (c.viral || 0) * 10 + (c.duels || 0) * 10 + (c.gangHits || 0) + (c.intruders || 0) * 15 + (c.parrots || 0) * 3 + (c.troopHits || 0) * 2 + (c.whips || 0) * 4 + (c.airHits || 0) * 6 + (c.vineJumps || 0);
+    + (c.screams || 0) * 2 + (c.viral || 0) * 10 + (c.duels || 0) * 10 + (c.gangHits || 0) + (c.intruders || 0) * 15 + (c.parrots || 0) * 3 + (c.troopHits || 0) * 2 + (c.whips || 0) * 4 + (c.airHits || 0) * 6 + (c.vineJumps || 0)
+    + (c.pyHits || 0) * 8 + (c.pyThrows || 0) * 3 + (c.pyEscapes || 0) * 15 + (c.farts || 0) * 2 + (c.riots || 0) * 25 + (c.raids || 0) * 12 + (c.soaks || 0) + (c.whistles || 0) * 2;
 }
 function hoolRank(pts = hoolPts()) { let r = 0; HOOL_RANKS.forEach((h, i) => { if (pts >= h.p) r = i; }); return r; }
 const rankOf = p => p.me ? hoolRank() : (p.hr || 0);          // ранг = сколько обезьян можно держать в банде

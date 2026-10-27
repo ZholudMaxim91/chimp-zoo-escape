@@ -109,6 +109,7 @@ function genWorld(seedStr) {
   for (let j = 0; j < 3; j++) for (let i = 0; i < 3; i++) { h[I(hut.x + i, hut.y + j)] = 0; kind[I(hut.x + i, hut.y + j)] = K.COBBLE; blocked[I(hut.x + i, hut.y + j)] = 1; }
   W.hut = hut; add('hut', hut.x + 1.5, hut.y + 1.5, { w: 3, d: 3 }, false);
   add('locker', hut.x - .5, hut.y + 1.5, { opened: false });
+  { const p = nearFree(hut.x + 1, hut.y + 4.5, 4) || nearFree(hut.x - 2, hut.y + 1, 5); if (p) add('hose', p[0] + .5, p[1] + .5, {}); }
   add('gate', N - .5, gy + .5, { open: false }, false);
   // ── старт: ровное место в центре-юге
   W.spawn = (() => { const p = nearFree(N * .35, N * .6, 7); return p ? { x: p[0] + .5, y: p[1] + .5 } : { x: 12.5, y: 25.5 }; })();
@@ -198,7 +199,9 @@ function genWorld(seedStr) {
   { const p = spot(N * .6, N * .4, 8); W.npcSpawns.push({ sp: 'troop', x: p[0] + .5, y: p[1] + .5 }); }
   { const p = spot(m2.x - 6, m2.y, 5); W.npcSpawns.push({ sp: 'gorilla', x: p[0] + .5, y: p[1] + .5 }); }
   for (let i = 0; i < 2; i++) { const p = spot(N * .5 + rr(-9, 9), N * .5 + rr(-3, 9), 10); W.npcSpawns.push({ sp: 'tortoise', x: p[0] + .5, y: p[1] + .5 }); }
+  { const pd2 = W.ponds[W.ponds.length - 1] || W.pond, p = spot(pd2.x + pd2.rx + 2, pd2.y + 1, 7); W.spawnPython = { x: p[0] + .5, y: p[1] + .5 }; }
   for (let i = 0; i < 3; i++) W.npcSpawns.push({ sp: 'parrot', x: rr(6, N - 6), y: rr(6, N - 6), col: [PAL.red, PAL.blue, PAL.lime][i] });
+  W.npcSpawns.push({ sp: 'python', x: W.spawnPython.x, y: W.spawnPython.y });
   // ── зрители снаружи: север и запад (и немного у ворот)
   for (let i = 0; 2 + i * 2.3 < N - 2; i++) W.visitors.push({ x: 2 + i * 2.3 + rr(-.4, .4), y: -1.5 - rr(0, 1.4), side: 'n' });
   for (let i = 0; 3 + i * 2.8 < N - 3; i++) W.visitors.push({ x: -1.5 - rr(0, 1.4), y: 3 + i * 2.8 + rr(-.4, .4), side: 'w' });
