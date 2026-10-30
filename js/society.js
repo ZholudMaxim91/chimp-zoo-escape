@@ -31,11 +31,12 @@ function logEv(icon, text) {
 function aiChimp2(n, dt) {
   if (n.mood && (n.moodT -= dt) <= 0) n.mood = null;
   if (n.actT > 0) { n.actT -= dt; if (n.actT <= 0) n.act = null; }
+  if (n.pukeT > 0) { n.pukeT -= dt; n.moving = false; n.goal = null; n.act = n.pukeT > 0 && (5 - n.pukeT) % 1.8 < 1.2 ? 'puke' : null; if (n.act && Math.random() < dt * .8) SND.puke(n); return; }   // тошнит: стоит и блюёт толчками
   const me = nearestPlayer(n); if (!me) return; const dme = dist(n, me);
   if (n.fleeT > 0) { n.fleeT -= dt; n.act = null; n.goal = null; stepAround(n, n.x - me.x, n.y - me.y, dt, 3.2, { noWater: true }); return; }
   if (n.gang) { gangAI(n, dt); return; }
   const b = nearestPickup(n, 'banana', 9);
-  if (b && !isNight()) { n.act = null; if (goTo(n, b.x, b.y, dt, 2.4, { noWater: true }) || dist(n, b) < .6) { eatPickup(n, b); n.bond = Math.min(100, n.bond + 18); n.mood = 'happy'; n.moodT = 2; n.act = 'eat'; n.actT = 1; checkBond(n, nearestPlayer(b)); } return; }
+  if (b && !isNight()) { n.act = null; if (goTo(n, b.x, b.y, dt, 2.4, { noWater: true }) || dist(n, b) < .6) { eatPickup(n, b); n.bond = Math.min(100, n.bond + 18); n.mood = 'happy'; n.moodT = 2; n.act = 'eat'; n.actT = 1; checkBond(n, nearestPlayer(b)); if (Math.random() < .06) { n.pukeT = 5; n.mood = null; logEv('🤮', `${n.name} съел гнилой банан — его выворачивает`); } } return; }
   n.want = n.bond < 50 && dme < 7 && bananasOf(me) > 0;
   if (n.bond >= 50 && dme < 14 && !isNight()) {
     n.act = null;
@@ -169,7 +170,7 @@ function updateIntruders(dt) {
 function nearestEdge(e) { const c = [{ x: e.x, y: -.5 }, { x: -.5, y: e.y }, { x: e.x, y: N + .5 }]; return c.sort((a, b) => dist(a, e) - dist(b, e))[0]; }
 function hitIntruder(by, kind, it) {
   if (!it || it.state !== 'wander') return;
-  if (kind === 'poop' || kind === 'pee' || kind === 'stone' || kind === 'mega' || kind === 'tire' || kind === 'whip') {
+  if (kind === 'poop' || kind === 'pee' || kind === 'puke' || kind === 'stone' || kind === 'mega' || kind === 'tire' || kind === 'whip') {
     it.hp -= kind === 'mega' || kind === 'tire' ? 3 : 1; it.lastBy = by; it.emo = { t: 1.5, s: it.hp > 0 ? 'ЭЙ!' : 'БЕГУ!' };
     reward(by, { score: 5, fl: [it.x, it.y, it.z + 3, it.hp > 0 ? 'ещё ' + it.hp : 'ВЫГНАЛ!', P_.org] });
     if (it.hp <= 0) { it.state = 'flee'; reward(by, { score: 40, cnt: { intruders: 1 }, toast: ['🏃 Ты выгнал смельчака из вольера! +40', 'good'], sfx: 'up' }); }

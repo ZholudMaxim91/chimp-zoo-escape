@@ -13,9 +13,9 @@ function resetState() {
     t: 0, day: 1, dayT: 80, boostT: 0, washT: 0, score: 0, energy: 80, keyHolder: null, pid: 0, duel: null, invite: null, gateOpen: false, gateAnim: 0, combo: 0, comboT: 0, mini: null, tut: null, tutOk: false, tutDist: 0, dustT: 0, peanutT: 5,
     vineCool: 0, shotCool: 0, stickDur: 3, startedAt: performance.now(), keyHint: 0,
     st: { str: { lv: 1, xp: 0 }, agi: { lv: 1, xp: 0 }, int: { lv: 1, xp: 0 }, cha: { lv: 1, xp: 0 } },
-    inv: { banana: 0, nut: 0, stone: 2, stick: 0, poop: 3, coin: 0, water: 0, coconut: 0, vine: 1, whistle: 0 }, vineHP: 4, mudT: 0, carry: null, spin: null, gas: 0, clouds: [], wet: [], wetQ: [], wetT: 0, riot: null, riotDay: 0, carryPy: false, hose: null, spraying: false, wearCap: false, coil: null, whistleCool: 0, shelters: [], tireXpT: 0, bladder: 10, diarrheaT: 0, eatLog: [], peeT: 0, trailT: 0,
+    inv: { banana: 0, nut: 0, stone: 2, stick: 0, poop: 3, coin: 0, water: 0, coconut: 0, vine: 1, whistle: 0 }, vineHP: 4, mudT: 0, carry: null, spin: null, gas: 0, clouds: [], wet: [], wetQ: [], wetT: 0, riot: null, riotDay: 0, carryPy: false, hose: null, spraying: false, wearCap: false, coil: null, whistleCool: 0, shelters: [], tireXpT: 0, bladder: 10, diarrheaT: 0, pukeT: 0, pukeJ: 0, nauseaT: 0, eatLog: [], peeT: 0, trailT: 0,
     cnt: { banana: 0, peanut: 0, nuts: 0, fish: 0, dig: 0, treasure: 0, puzzle: 0, show: 0, drums: 0, hits: 0, viral: 0, bestCombo: 0, bestShow: 0, stolen: 0, friends: 0, decoy: 0, slips: 0, gongs: 0,
-      squirts: 0, parrots: 0, summit: 0, vines: 0, jumps: 0, bounces: 0, ladders: 0, sprintT: 0, pacify: 0, locker: 0, throws: 0, shakes: 0, duels: 0, pHits: 0, washes: 0, pees: 0, cocos: 0, megas: 0, scared: 0, screams: 0, diarrhea: 0, troopHits: 0, intruders: 0, gangHits: 0, whips: 0, recruits: 0 }, intruders: [], lastRank: 0,
+      squirts: 0, parrots: 0, summit: 0, vines: 0, jumps: 0, bounces: 0, ladders: 0, sprintT: 0, pacify: 0, locker: 0, throws: 0, shakes: 0, duels: 0, pHits: 0, washes: 0, pees: 0, cocos: 0, megas: 0, scared: 0, screams: 0, diarrhea: 0, troopHits: 0, pukes: 0, pukeHits: 0, intruders: 0, gangHits: 0, whips: 0, recruits: 0 }, intruders: [], lastRank: 0,
     pickups: [], proj: [], parts: [], floaters: [], splats: [],
   });
   QUESTS.forEach(q => q.done = false); ACHS.forEach(a => a.on = false);
@@ -71,6 +71,16 @@ function addXp(k) {
 }
 // интеллект ускоряет сбор и сложные действия
 const SMART_ACTS = ['eat', 'dig', 'fish', 'grab', 'pick'];
+const PUKE_LEN = 6;   // приступ рвоты, с (три толчка по 1,3 с)
+// соседей-шимпанзе тошнит у всех на экране: струя — только картинка (act «puke» приходит в снимке хоста)
+function pukeNpcs(dt) {
+  for (const n of G.npcs) {
+    if (n.sp !== 'chimp' || n.act !== 'puke' || Math.random() > dt * 26) continue;
+    const sx = n.fx || 1, sy = n.fb ? 1 : -1, dx = (sx + sy) / 2, dy = (sy - sx) / 2, r = rnd(2, 3), tx = n.x + dx * r + rnd(-.3, .3), ty = n.y + dy * r + rnd(-.3, .3);
+    const from = { x: n.x + dx * .3, y: n.y + dy * .3, z: n.z + .9 }, T = .5;
+    spawnProj('puke', null, { vx: (tx - from.x) / T, vy: (ty - from.y) / T, vz: (groundAt(G.W, tx, ty) - from.z + .5 * GP * T * T) / T }, true, from);
+  }
+}
 function startAct(type, dur, done, prop) { const me = G.me; if (SMART_ACTS.includes(type)) dur *= clamp(1 - .1 * (G.st.int.lv - 1), .55, 1); me.act = { type, t: 0, dur, done, prop }; me.moving = false; }
 // ── сутки: 1 день = 2 минуты, на побег 20 дней ──
 const DAY_LEN = 360, DAYS = 20;
@@ -94,11 +104,13 @@ function eatBanana() {
   const me = G.me; if (me.act || G.mini || me.stun > 0) return;
   if (G.inv.banana <= 0) { toast('Нет бананов — сорви с пальмы (E)', 'bad'); return; }
   if (G.diarrheaT > 0) { toast('🤢 Живот бурлит — воздержись от бананов ещё ' + Math.ceil(G.diarrheaT) + ' с', 'bad'); sfx.bad(); return; }
+  if (G.nauseaT > 0) { toast('🤮 От одного вида бананов мутит — подожди ещё ' + Math.ceil(G.nauseaT) + ' с', 'bad'); sfx.bad(); return; }
   startAct('eat', .5, () => {
     G.inv.banana--; G.eatLog = G.eatLog.filter(t => G.t - t < 25); /* банан в руке — см. prop */ G.eatLog.push(G.t);
     const rotten = Math.random() < .12, binge = G.eatLog.length >= 3;
     G.cnt.banana++; G.inv.poop = Math.min(9, G.inv.poop + 1); sfx.eat();
-    if (rotten || binge) { G.diarrheaT = 60; G.eatLog = []; G.cnt.diarrhea++; addEnergy(5); toast(rotten ? '🤢 Банан был испорчен! Понос: минуту без бананов' : '🤢 Объелся бананами! Понос: минуту без бананов', 'bad'); floater(me.x, me.y, me.z + 3, 'БУРЛ-БУРЛ', P_.d3); }
+    if (rotten && Math.random() < .5) { G.pukeT = PUKE_LEN; G.pukeJ = 0; G.nauseaT = 40; G.eatLog = []; G.cnt.pukes++; toast('🤮 Банан был испорчен! Сейчас вывернет — целься мышью в публику!', 'bad'); floater(me.x, me.y, me.z + 3, 'УРРГХ…', '#9ac040'); }
+    else if (rotten || binge) { G.diarrheaT = 60; G.eatLog = []; G.cnt.diarrhea++; addEnergy(5); toast(rotten ? '🤢 Банан был испорчен! Понос: минуту без бананов' : '🤢 Объелся бананами! Понос: минуту без бананов', 'bad'); floater(me.x, me.y, me.z + 3, 'БУРЛ-БУРЛ', P_.d3); }
     else { addEnergy(25); addScore(5); floater(me.x, me.y, me.z + 3, '+5  +1 заряд', P_.yel); }
   }, 'banana');
 }
@@ -522,6 +534,23 @@ function update(dt) {
   if (me.vine) { const a = me.act; if (!a || a.type === 'pee') me.act = { type: peeKey && G.bladder > 0 ? 'pee' : 'vineSwing', t: 0, dur: 0, done: null }; }
   if (me.landT > 0) me.landT -= dt;
   if (G.bladder >= 100) { G.bladder = 0; G.splats.push({ x: me.x, y: me.y, z: me.z, t: 0, c: 'pee' }, { x: me.x + .3, y: me.y + .2, z: me.z, t: 0, c: 'pee' }); addScore(-5); toast('😳 Не дотерпел! Лужа под тобой. В следующий раз пиши кнопкой V', 'bad'); SND.splash(me); }
+  // рвота: приступ толчками, струя на 2–3 м туда, куда смотрит прицел — остановить нельзя
+  if (G.nauseaT > 0) G.nauseaT -= dt;
+  if (G.pukeT > 0) {
+    G.pukeT -= dt; const ph = (PUKE_LEN - G.pukeT) % 2, jet = ph < 1.3 && G.pukeT > 0 && !me.tween;
+    if (jet) {
+      if (!me.act || me.act.type !== 'puke') { me.act = { type: 'puke', t: 0, dur: 0, done: null }; if (G.spin) G.spin = null; G.spraying = false; floater(me.x, me.y, me.z + 3, pick(['БУЭЭЭ!', 'БЛЭЭЭ!', 'УААРГХ!']), '#9ac040'); SND.puke(me); }
+      setFacing(me, G.aim.x - me.x, G.aim.y - me.y); addEnergy(-1.5 * dt); G.pukeJ -= dt;
+      if (G.pukeJ <= 0) {
+        G.pukeJ = .035; const d = Math.hypot(G.aim.x - me.x, G.aim.y - me.y) || 1, r = rnd(2, 3) * Math.min(1, ph * 3 + .4), tx = me.x + (G.aim.x - me.x) / d * r + rnd(-.25, .25), ty = me.y + (G.aim.y - me.y) / d * r + rnd(-.25, .25);
+        const from = { x: me.x + me.dx * .3, y: me.y + me.dy * .3, z: me.z + .95 }, T = .5, pv = { vx: (tx - from.x) / T, vy: (ty - from.y) / T, vz: (groundAt(G.W, tx, ty) - from.z + .5 * GP * T * T) / T };
+        spawnProj('puke', me, pv, false, from);
+        if (isNet() && Math.random() < .35) { const m = { t: 'proj', k: 'puke', x: from.x, y: from.y, z: from.z, vx: pv.vx, vy: pv.vy, vz: pv.vz }; if (isHost()) NET.bcast(m); else NET.send(m); }
+      }
+    } else if (me.act && me.act.type === 'puke') me.act = null;
+    if (G.pukeT <= 0) { if (me.act && me.act.type === 'puke') me.act = null; toast('😮‍💨 Отпустило… Бананов пока не хочется', 'good'); }
+  }
+  pukeNpcs(dt);
   // понос: коричневый след
   if (G.diarrheaT > 0) { G.diarrheaT -= dt; addEnergy(-.25 * dt); if (me.moving) { G.trailT -= dt; if (G.trailT <= 0) { G.trailT = .4; G.splats.push({ x: me.x - me.dx * .3, y: me.y - me.dy * .3, z: me.z, t: 0 }); if (Math.random() < .3) SND.splat(me); } } if (G.diarrheaT <= 0) toast('😌 Живот успокоился — бананы снова можно', 'good'); }
   if (host) { const was = isNight(); G.dayT += dt; if (G.dayT >= DAY_LEN) { G.dayT -= DAY_LEN; G.day++; if (G.day <= DAYS) { toast('📅 День ' + G.day + ' из ' + DAYS + (DAYS - G.day < 3 ? ' — времени почти не осталось!' : ''), DAYS - G.day < 3 ? 'bad' : ''); } } if (!was && isNight()) toast('🌙 Ночь: посетители ушли, смотритель идёт спать в сторожку'); if (was && !isNight()) toast('🌅 Рассвет: зоопарк просыпается'); if (Math.abs(G.dayT - 294) < dt) toast('🌇 Закат — скоро ночь'); }
@@ -656,7 +685,7 @@ function updateHud() {
   QUESTS.forEach((q, i) => { qEls[i].classList.toggle('done', q.done); qEls[i].lastChild.textContent = q.done ? '✔' : `${Math.min(q.get(), q.goal)}/${q.goal}`; });
   ACHS.forEach((a, i) => aEls[i].classList.toggle('on', a.on));
   const k = G.keeper, ks = { patrol: ['👁 патруль', ''], suspicious: ['👁 ищет!', 'warn'], chase: ['👁 ПОГОНЯ!', 'alarm'], stunned: ['👁 оглушён', 'ok'], tohut: ['👁 идёт спать', 'ok'], sleep: ['💤 спит', 'ok'] }[k.state] || ['👁 ?', ''];
-  const ds = dirtSlow(); $('dayInfo').innerHTML = '📅 ' + Math.min(G.day, DAYS) + '/' + DAYS + ' · ' + (isNight() ? '🌙' : '☀') + ' ' + clockStr() + (ds ? ' · <span class="ks alarm">💩 −' + Math.round(ds * 100) + '%</span>' : '') + (G.boostT > 0 ? ' · 🥥 ' + Math.ceil(G.boostT) + 'с' : '') + (G.diarrheaT > 0 ? ' · <span class="ks alarm">🤢 ' + Math.ceil(G.diarrheaT) + 'с</span>' : '') + (G.mudT > 0 ? ' · 🟤 ' + Math.ceil(G.mudT) + 'с' : '') + (inShelter(G.me) ? ' · 🛖 укрыт' : '') + (G.carry ? ' · 🛞 шина' + (G.spin ? ' ' + Math.round(clamp(G.spin.t / 1.2, 0, 1) * 100) + '%' : '') : '')
+  const ds = dirtSlow(); $('dayInfo').innerHTML = '📅 ' + Math.min(G.day, DAYS) + '/' + DAYS + ' · ' + (isNight() ? '🌙' : '☀') + ' ' + clockStr() + (ds ? ' · <span class="ks alarm">💩 −' + Math.round(ds * 100) + '%</span>' : '') + (G.boostT > 0 ? ' · 🥥 ' + Math.ceil(G.boostT) + 'с' : '') + (G.diarrheaT > 0 ? ' · <span class="ks alarm">🤢 ' + Math.ceil(G.diarrheaT) + 'с</span>' : '') + (G.pukeT > 0 || G.nauseaT > 0 ? ' · <span class="ks alarm">🤮 ' + Math.ceil(G.pukeT > 0 ? G.pukeT : G.nauseaT) + 'с</span>' : '') + (G.mudT > 0 ? ' · 🟤 ' + Math.ceil(G.mudT) + 'с' : '') + (inShelter(G.me) ? ' · 🛖 укрыт' : '') + (G.carry ? ' · 🛞 шина' + (G.spin ? ' ' + Math.round(clamp(G.spin.t / 1.2, 0, 1) * 100) + '%' : '') : '')
     + (G.carryPy ? ' · 🐍 питон' + (G.spin ? ' ' + Math.round(clamp(G.spin.t / 1.2, 0, 1) * 100) + '%' : '') : '') + (G.hose ? ' · 🚿 шланг' : '') + (G.coil ? ' · <span class="ks alarm">🐍 ПРОБЕЛ! ' + G.coil.mash + '/7</span>' : '')
     + ((G.gas || 0) >= 30 ? ' · 💨 ' + Math.round(G.gas) + '% (T)' : '') + (G.riot ? ' · <span class="ks alarm">🔥 бунт ' + Math.ceil(G.riot.t) + 'с</span>' : '') + (G.inv.whistle ? ' · 📯 Z' : '') + (G.wearCap ? ' · 🧢' : '');
   $('escapeInfo').innerHTML = `<span class="ks ${ks[1]}">${ks[0]}</span> · 🗝 ${G.hasKey ? '✔' : '✘'} · уровни ${lvSum()}/${NEED_SUM}${G.combo > 1 ? ' · 🔥×' + Math.min(3, G.combo) : ''}`;

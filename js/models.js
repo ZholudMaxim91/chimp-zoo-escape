@@ -257,6 +257,9 @@ function poseApe(r, st) {
   } else if (a === 'throw') {
     j.torso.rotation.x = .15; j.torso.rotation.y = p < .5 ? .5 : -.4;
     j.shR.rotation.x = p < .5 ? -2.9 : -1.3; j.elR.rotation.x = p < .5 ? -1.2 : -.1; j.shL.rotation.x = -.8; j.hold.visible = false; if (j.props) { const pr = j.props[st.prop || 'poop']; if (pr) pr.visible = p < .5; }
+  } else if (a === 'puke') {   // согнулся пополам, руки на коленях, пасть нараспашку, всего трясёт
+    const s = Math.sin(t * 22) * .06; j.torso.rotation.x = .75 + s; j.neck.rotation.x = .15 - s * 2; j.shL.rotation.x = j.shR.rotation.x = .7; j.hipL.rotation.x = j.hipR.rotation.x = -.35; j.knL.rotation.x = j.knR.rotation.x = .55; hipsY = .4;
+    j.mouth.scale.y = j.mouth.userData.sy * 5;
   } else if (a === 'eat' || a === 'drink') {
     j.torso.rotation.x = .3; j.shR.rotation.x = -1.6; j.elR.rotation.x = -1.9; j.shR.rotation.z = -.35; j.neck.rotation.x = -.2 + Math.sin(t * 14) * .08;
     j.mouth.scale.y = j.mouth.userData.sy * (1.6 + Math.sin(t * 14) * .8);

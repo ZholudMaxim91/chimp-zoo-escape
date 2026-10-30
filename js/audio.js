@@ -71,6 +71,7 @@ const SND = {
   drum: at => { toneHit({ at, f0: rnd(150, 190), f1: 60, dur: .25, vol: .5 }); noiseHit({ at, f0: 3000, f1: 400, dur: .06, vol: .15 }); },
   whistle: at => toneHit({ at, f0: 2300, f1: 2250, dur: .9, vol: .18, vib: 28, vibAmt: 140 }),
   coin: at => { toneHit({ at, f0: 1568, dur: .25, vol: .15 }); setTimeout(() => toneHit({ at, f0: 2093, dur: .35, vol: .12 }), 70); },
+  puke: at => { toneHit({ at, f0: 210, f1: 120, dur: .5, wave: 'sawtooth', vol: .2, vib: 9, vibAmt: 40 }); noiseHit({ at, type: 'bandpass', f0: 900, f1: 300, dur: .9, vol: .3, q: 1.2, att: .05 }); },
   fart: at => { toneHit({ at, f0: 95, f1: 52, dur: .75, wave: 'sawtooth', vol: .28, vib: 24, vibAmt: 30 }); noiseHit({ at, f0: 420, f1: 90, dur: .7, vol: .22, q: 3, att: .02 }); },
   crowd: at => { noiseHit({ at, type: 'bandpass', f0: 700, f1: 1100, dur: .9, vol: .2, q: 1.5, att: .15 }); },
 };

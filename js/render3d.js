@@ -602,6 +602,7 @@ const PICK_MK = {
   peanut: () => part(GEO.sph, '#d8b070', null, [.07, .05, .1]), nut: () => part(GEO.sph, '#8a5a30', null, [.07, .07, .07]),
   stone: () => part(GEO.sph, '#9a9aa4', null, [.09, .07, .08]), stick: () => part(GEO.cyl, '#8a6238', null, [.025, .45, .025], [0, 0, 1.4]),
   poop: () => part(GEO.sph, '#5a3a1a', null, [.08, .07, .08]), mega: () => part(GEO.sph2, '#4a2e12', null, [.22, .2, .22]), pee: () => part(GEO.sph, '#f0e060', null, [.03, .03, .03], null, { emissive: '#605010', emissiveIntensity: .3 }), water: () => part(GEO.sph, '#9ad8ff', null, [.04, .04, .04], null, { emissive: '#3a7aaa', emissiveIntensity: .4 }),
+  puke: () => part(GEO.sph, '#c4dc48', null, [.08, .07, .08], null, { emissive: '#6a7a18', emissiveIntensity: .55 }),
   hose: () => part(GEO.sph, '#bfe8ff', null, [.05, .05, .05], null, { emissive: '#3a7aaa', emissiveIntensity: .5 }),
   hook: () => part(GEO.sph, '#c89a62', null, [.04, .04, .04]), vine: () => part(GEO.cyl, '#4e8a32', null, [.02, .5, .02], [.3, 0, 1.2]), tire: () => part(GEO.tor, '#1e1e22', null, [.26, .26, .26], [Math.PI / 2, 0, 0]),
 };
@@ -641,7 +642,10 @@ function syncItems() {
   let pi = 0;
   for (const s of G.splats) if (s.c === 'pee') { const m = pool('puddle', pi++, () => { const mm = new T3.Mesh(new T3.CircleGeometry(.24, 10), new T3.MeshBasicMaterial({ color: '#d8c850', transparent: true, depthWrite: false })); mm.rotation.x = -Math.PI / 2; mm.renderOrder = 1; return mm; }); m.position.set(s.x, groundSmooth(s.x, s.y) * LV + .021, s.y); m.material.opacity = clamp((28 - s.t) / 6, 0, .6); m.scale.setScalar(.8 + (s.y * 5 % 1) * .7); }
   hideFrom('puddle', pi);
-  for (const s of G.splats) if (s.c !== 'pee') { const m = pool('splat', si++, () => { const mm = new T3.Mesh(new T3.CircleGeometry(.2, 9), new T3.MeshBasicMaterial({ color: '#4a2e12', transparent: true, depthWrite: false })); mm.rotation.x = -Math.PI / 2; mm.renderOrder = 1; return mm; }); m.position.set(s.x, groundSmooth(s.x, s.y) * LV + .02, s.y); m.material.opacity = clamp((28 - s.t) / 6, 0, .85); m.scale.setScalar(1 + (s.x * 7 % 1) * .5); }
+  let vi = 0;
+  for (const s of G.splats) if (s.c === 'puke') { const m = pool('pukepud', vi++, () => { const mm = new T3.Mesh(new T3.CircleGeometry(.22, 9), new T3.MeshBasicMaterial({ color: '#8fa838', transparent: true, depthWrite: false })); mm.rotation.x = -Math.PI / 2; mm.renderOrder = 1; return mm; }); m.position.set(s.x, groundSmooth(s.x, s.y) * LV + .022, s.y); m.material.opacity = clamp((28 - s.t) / 6, 0, .85); }
+  hideFrom('pukepud', vi);
+  for (const s of G.splats) if (s.c !== 'pee' && s.c !== 'puke') { const m = pool('splat', si++, () => { const mm = new T3.Mesh(new T3.CircleGeometry(.2, 9), new T3.MeshBasicMaterial({ color: '#4a2e12', transparent: true, depthWrite: false })); mm.rotation.x = -Math.PI / 2; mm.renderOrder = 1; return mm; }); m.position.set(s.x, groundSmooth(s.x, s.y) * LV + .02, s.y); m.material.opacity = clamp((28 - s.t) / 6, 0, .85); m.scale.setScalar(1 + (s.x * 7 % 1) * .5); }
   hideFrom('splat', si);
 }
 
